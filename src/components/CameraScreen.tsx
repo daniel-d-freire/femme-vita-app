@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Logo } from './Logo';
 import { captureFrame, startCamera, stopCamera, type CameraStreamHandle, type CapturedPage } from '../lib/camera';
+import type { AuthUser } from '../lib/api';
 
 type Props = {
   pages: CapturedPage[];
   onCapture: (page: CapturedPage) => void;
   onReview: () => void;
+  user: AuthUser;
+  folderCount: number | null;
+  foldersError?: string;
+  onLogout: () => void;
 };
 
 type CameraState =
@@ -14,12 +19,13 @@ type CameraState =
   | { kind: 'denied' }
   | { kind: 'error'; message: string };
 
-export function CameraScreen({ pages, onCapture, onReview }: Props) {
+export function CameraScreen({ pages, onCapture, onReview, user, folderCount, foldersError, onLogout }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<CameraStreamHandle | null>(null);
   const [state, setState] = useState<CameraState>({ kind: 'starting' });
   const [flash, setFlash] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,20 +74,58 @@ export function CameraScreen({ pages, onCapture, onReview }: Props) {
   }, [state, capturing, onCapture]);
 
   const lastPage = pages[pages.length - 1];
+  const initial = (user.name?.[0] || user.email[0] || '?').toUpperCase();
 
   return (
     <div className="relative flex h-[100svh] w-full flex-col bg-navy-deep overflow-hidden">
       {/* Header */}
-      <header className="relative z-20 flex items-center justify-between px-5 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
+      <header className="relative z-20 flex items-start justify-between px-5 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
         <Logo variant="light" size="sm" />
-        <div className="font-mono text-[11px] tracking-wider text-bone/60 uppercase">
-          {pages.length > 0 ? (
-            <span><span className="text-amber">{String(pages.length).padStart(2, '0')}</span> / página{pages.length === 1 ? '' : 's'}</span>
-          ) : (
-            <span>Pronto</span>
-          )}
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => setShowMenu((v) => !v)}
+            className="flex items-center gap-2 rounded-full bg-bone/10 px-2 py-1 backdrop-blur-sm transition active:scale-95"
+            aria-label="Menu da conta"
+          >
+            {user.picture ? (
+              <img src={user.picture} alt="" referrerPolicy="no-referrer" className="h-7 w-7 rounded-full" />
+            ) : (
+              <div className="grid h-7 w-7 place-items-center rounded-full bg-amber font-mono text-xs font-semibold text-navy-deep">
+                {initial}
+              </div>
+            )}
+          </button>
+          <div className="text-right font-mono text-[10px] tracking-wider uppercase text-bone/50">
+            {folderCount !== null ? (
+              <span><span className="text-amber">{folderCount}</span> pacientes</span>
+            ) : foldersError ? (
+              <span className="text-danger">Apolo não encontrada</span>
+            ) : (
+              <span>carregando…</span>
+            )}
+          </div>
         </div>
       </header>
+
+      {/* Account menu */}
+      {showMenu && (
+        <div className="absolute right-5 top-[calc(env(safe-area-inset-top)+3.5rem)] z-30 w-64 origin-top-right rounded-2xl border border-bone/10 bg-navy/95 p-4 shadow-lifted backdrop-blur-lg animate-slide-down">
+          <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-bone/40">Conta</p>
+          <p className="mt-1.5 font-serif text-lg text-bone truncate">{user.name || user.email}</p>
+          <p className="font-mono text-[11px] text-bone/50 truncate">{user.email}</p>
+          {foldersError && (
+            <p className="mt-3 rounded-md border border-danger/30 bg-danger/10 p-2 text-[11px] leading-snug text-bone/90">
+              {foldersError}
+            </p>
+          )}
+          <button
+            onClick={() => { setShowMenu(false); onLogout(); }}
+            className="mt-4 flex w-full items-center justify-center rounded-xl border border-bone/15 bg-bone/5 px-3 py-2.5 font-mono text-[11px] tracking-wider uppercase text-bone transition active:scale-[0.98]"
+          >
+            Sair
+          </button>
+        </div>
+      )}
 
       {/* Viewfinder */}
       <div className="relative flex-1 overflow-hidden">
@@ -153,11 +197,9 @@ export function CameraScreen({ pages, onCapture, onReview }: Props) {
               aria-label={`Revisar ${pages.length} página${pages.length === 1 ? '' : 's'}`}
             >
               <img src={lastPage.dataUrl} alt="" className="h-full w-full object-cover" />
-              {pages.length > 1 && (
-                <span className="absolute right-1 top-1 rounded-md bg-navy-deep/90 px-1.5 py-0.5 font-mono text-[10px] font-medium text-bone">
-                  +{pages.length - 1}
-                </span>
-              )}
+              <span className="absolute right-1 top-1 rounded-md bg-navy-deep/90 px-1.5 py-0.5 font-mono text-[10px] font-medium text-bone">
+                {pages.length}
+              </span>
             </button>
           ) : (
             <div className="h-14 w-14 rounded-xl border border-dashed border-bone/15" />

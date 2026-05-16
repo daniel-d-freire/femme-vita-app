@@ -1,10 +1,20 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CameraScreen } from './components/CameraScreen';
 import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
+import { LoginScreen } from './components/LoginScreen';
 import type { CapturedPage } from './lib/camera';
-import { ApiError, analyzePages, type AnalyzeResult } from './lib/api';
+import {
+  ApiError,
+  analyzePages,
+  fetchAuthState,
+  fetchFolders,
+  logout,
+  type AnalyzeResult,
+  type AuthUser,
+  type FoldersResponse,
+} from './lib/api';
 
 type Screen =
   | { kind: 'camera' }
@@ -13,9 +23,44 @@ type Screen =
   | { kind: 'result'; result: AnalyzeResult }
   | { kind: 'error'; message: string };
 
+type AuthStatus =
+  | { kind: 'loading' }
+  | { kind: 'unauthenticated'; error?: string }
+  | { kind: 'authenticated'; user: AuthUser; folders: FoldersResponse | null; foldersError?: string };
+
 export default function App() {
+  const [auth, setAuth] = useState<AuthStatus>({ kind: 'loading' });
   const [screen, setScreen] = useState<Screen>({ kind: 'camera' });
   const [pages, setPages] = useState<CapturedPage[]>([]);
+
+  // Check auth + fetch folders on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await fetchAuthState();
+        if (cancelled) return;
+        if (!state.authenticated) {
+          setAuth({ kind: 'unauthenticated' });
+          return;
+        }
+        // Fetch folders in parallel
+        try {
+          const folders = await fetchFolders();
+          if (cancelled) return;
+          setAuth({ kind: 'authenticated', user: state.user, folders });
+        } catch (err) {
+          if (cancelled) return;
+          const msg = err instanceof ApiError ? (err.body.message || err.body.error) : (err as Error).message;
+          setAuth({ kind: 'authenticated', user: state.user, folders: null, foldersError: msg });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setAuth({ kind: 'unauthenticated', error: (err as Error).message });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleCapture = useCallback((page: CapturedPage) => {
     setPages((prev) => [...prev, page]);
@@ -47,6 +92,22 @@ export default function App() {
     setScreen({ kind: 'camera' });
   }, []);
 
+  const handleLogout = useCallback(async () => {
+    await logout();
+    setAuth({ kind: 'unauthenticated' });
+    setPages([]);
+    setScreen({ kind: 'camera' });
+  }, []);
+
+  if (auth.kind === 'loading') {
+    return <BootScreen />;
+  }
+
+  if (auth.kind === 'unauthenticated') {
+    return <LoginScreen error={auth.error} />;
+  }
+
+  // Authenticated
   switch (screen.kind) {
     case 'processing':
       return <ProcessingScreen pageCount={pages.length} />;
@@ -87,9 +148,21 @@ export default function App() {
           pages={pages}
           onCapture={handleCapture}
           onReview={() => setScreen({ kind: 'review' })}
+          user={auth.user}
+          folderCount={auth.folders?.folders.length ?? null}
+          foldersError={auth.foldersError}
+          onLogout={handleLogout}
         />
       );
   }
+}
+
+function BootScreen() {
+  return (
+    <div className="flex min-h-[100svh] items-center justify-center bg-bone">
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-navy/10 border-t-amber" />
+    </div>
+  );
 }
 
 function ErrorScreen({ message, onRetry, onBack }: { message: string; onRetry: () => void; onBack: () => void }) {

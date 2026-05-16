@@ -1,5 +1,43 @@
 import type { CapturedPage } from './camera';
 
+export type AuthUser = {
+  email: string;
+  name?: string;
+  picture?: string;
+};
+
+export type AuthState =
+  | { authenticated: false }
+  | { authenticated: true; user: AuthUser; apoloFolderResolved: boolean };
+
+export type FoldersResponse = {
+  apoloFolderId: string;
+  folders: { id: string; name: string }[];
+  cached: boolean;
+};
+
+export async function fetchAuthState(): Promise<AuthState> {
+  const response = await fetch('/api/auth/me', { credentials: 'include' });
+  if (response.status === 401) return { authenticated: false };
+  if (!response.ok) throw new Error(`auth_check_failed:${response.status}`);
+  return (await response.json()) as AuthState;
+}
+
+export async function fetchFolders(reload = false): Promise<FoldersResponse> {
+  const url = reload ? '/api/folders?reload=1' : '/api/folders';
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) {
+    let body: AnalyzeError = { error: 'http_error', message: `HTTP ${response.status}` };
+    try { body = await response.json(); } catch { /* ignore */ }
+    throw new ApiError(response.status, body);
+  }
+  return (await response.json()) as FoldersResponse;
+}
+
+export async function logout(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+}
+
 export type AnalyzeResult = {
   patient_name: string;
   document_type: 'guia_internacao' | 'descricao_cirurgica' | null;
