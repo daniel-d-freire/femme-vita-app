@@ -118,7 +118,7 @@ export function PagesStack({ pages, onAddPage, onRemovePage, onSubmit }: Props) 
           </button>
         </div>
         <p className="mt-2 text-center font-mono text-[10px] tracking-wider uppercase text-navy/30">
-          Leitura automática chega no M2
+          Claude vai ler nome + tipo da paciente
         </p>
       </footer>
     </div>
