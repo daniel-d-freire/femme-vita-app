@@ -1,8 +1,18 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Logo } from './Logo';
-import { confidenceLabel, formatDocumentType, type AnalyzeResult, type UploadTarget } from '../lib/api';
+import { FolderSearch } from './FolderSearch';
+import {
+  confidenceLabel,
+  type AnalyzeResult,
+  type UploadTarget,
+} from '../lib/api';
 import type { Folder, FolderMatch } from '../lib/folder-match';
 import { matchFolder, buildFileName } from '../lib/folder-match';
+
+type DocType = 'guia_internacao' | 'descricao_cirurgica';
+type Manual =
+  | { kind: 'folder'; folder: Folder }
+  | { kind: 'pendente'; name: string };
 
 type Props = {
   result: AnalyzeResult;
@@ -13,29 +23,54 @@ type Props = {
 };
 
 export function ResultScreen({ result, pageCount, folders, onSave, onBackToReview }: Props) {
-  const match = useMemo<FolderMatch | null>(
-    () => (result.patient_name ? matchFolder(result.patient_name, folders) : null),
-    [result.patient_name, folders]
+  const [editedName, setEditedName] = useState(result.patient_name);
+  const [editedType, setEditedType] = useState<DocType | null>(result.document_type);
+  const [editingName, setEditingName] = useState(false);
+  const [manual, setManual] = useState<Manual | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Re-run matching whenever the edited name changes — unless user manually overrode.
+  const autoMatch = useMemo<FolderMatch | null>(
+    () => (editedName ? matchFolder(editedName, folders) : null),
+    [editedName, folders]
   );
+
+  // Resolved destination (manual override wins).
+  const destination = useMemo(() => {
+    if (manual) return manual;
+    if (autoMatch) return { kind: 'folder' as const, folder: autoMatch.folder };
+    return { kind: 'pendente' as const, name: editedName };
+  }, [manual, autoMatch, editedName]);
+
+  const fileName = useMemo(() => {
+    if (!editedType) return null;
+    const base = destination.kind === 'folder' ? destination.folder.name : destination.name;
+    if (!base) return null;
+    return buildFileName(editedType, base);
+  }, [editedType, destination]);
+
+  // Focus name input when entering edit mode.
+  useEffect(() => {
+    if (editingName) {
+      const t = setTimeout(() => nameInputRef.current?.select(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [editingName]);
 
   const nameConf = confidenceLabel(result.confidence_name);
   const typeConf = confidenceLabel(result.confidence_type);
   const hasError = result.error !== null;
-  const canSave = result.document_type !== null && result.patient_name && !hasError;
 
-  const fileName = useMemo(() => {
-    if (!result.document_type) return null;
-    // If we matched a folder, prefer its canonical name. Otherwise use what Claude extracted.
-    const name = match ? match.folder.name : result.patient_name;
-    return buildFileName(result.document_type, name);
-  }, [result.document_type, result.patient_name, match]);
+  const wasEdited = editedName !== result.patient_name || editedType !== result.document_type;
+  const canSave = !!editedType && !!editedName && !hasError;
 
   const handleSave = () => {
-    if (!fileName || !result.document_type) return;
-    if (match) {
-      onSave({ kind: 'folderId', folderId: match.folder.id }, fileName);
+    if (!fileName) return;
+    if (destination.kind === 'folder') {
+      onSave({ kind: 'folderId', folderId: destination.folder.id }, fileName);
     } else {
-      onSave({ kind: 'pendente', patientName: result.patient_name }, fileName);
+      onSave({ kind: 'pendente', patientName: destination.name }, fileName);
     }
   };
 
@@ -68,68 +103,115 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
         {/* Patient name */}
         <section className="mt-5 rounded-2xl border border-navy/8 bg-bone-50 p-5 shadow-soft">
           <div className="flex items-baseline justify-between">
-            <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">Paciente</p>
-            <ConfidenceBadge tone={nameConf.tone} value={result.confidence_name} />
+            <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">
+              Paciente {editedName !== result.patient_name && <span className="ml-1 text-amber-600">· editado</span>}
+            </p>
+            {!editingName && <ConfidenceBadge tone={nameConf.tone} value={result.confidence_name} />}
           </div>
-          <h1 className="mt-2 font-serif text-3xl leading-tight text-navy break-words">
-            {result.patient_name || <span className="italic text-navy/30">— não identificado —</span>}
-          </h1>
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={editedName}
+              onChange={(e) => { setEditedName(e.target.value); setManual(null); }}
+              onBlur={() => setEditingName(false)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setEditingName(false); }}
+              autoCapitalize="characters"
+              className="mt-2 w-full bg-transparent font-serif text-3xl leading-tight text-navy outline-none border-b-2 border-amber/60 pb-1 focus:border-amber"
+            />
+          ) : (
+            <button
+              onClick={() => setEditingName(true)}
+              className="mt-2 flex w-full items-start justify-between gap-3 text-left transition active:opacity-70"
+            >
+              <h1 className="font-serif text-3xl leading-tight text-navy break-words">
+                {editedName || <span className="italic text-navy/30">— não identificado —</span>}
+              </h1>
+              <PencilIcon />
+            </button>
+          )}
         </section>
 
         {/* Document type */}
         <section className="mt-3 rounded-2xl border border-navy/8 bg-bone-50 p-5 shadow-soft">
           <div className="flex items-baseline justify-between">
-            <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">Tipo</p>
+            <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">
+              Tipo {editedType !== result.document_type && <span className="ml-1 text-amber-600">· editado</span>}
+            </p>
             <ConfidenceBadge tone={typeConf.tone} value={result.confidence_type} />
           </div>
-          <div className="mt-2 flex items-center gap-3">
-            <DocTypeIcon type={result.document_type} />
-            <p className="font-serif text-2xl italic text-navy">
-              {formatDocumentType(result.document_type)}
-            </p>
+          <div className="mt-3 flex gap-2">
+            <TypeButton
+              active={editedType === 'guia_internacao'}
+              onClick={() => setEditedType('guia_internacao')}
+              icon={<GuiaIcon />}
+              label="Guia de internação"
+            />
+            <TypeButton
+              active={editedType === 'descricao_cirurgica'}
+              onClick={() => setEditedType('descricao_cirurgica')}
+              icon={<DescricaoIcon />}
+              label="Descrição cirúrgica"
+            />
           </div>
         </section>
 
-        {/* Folder match */}
+        {/* Destination */}
         <section className={`mt-3 overflow-hidden rounded-2xl border p-5 shadow-soft ${
-          match
-            ? match.confidence === 1.0
+          destination.kind === 'folder'
+            ? autoMatch && !manual && autoMatch.confidence === 1.0
               ? 'border-success/30 bg-success/5'
               : 'border-amber/30 bg-amber/5'
             : 'border-cyan/30 bg-cyan/5'
         }`}>
           <div className="flex items-baseline justify-between">
             <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">Destino</p>
-            {match ? (
-              <MatchBadge confidence={match.confidence} method={match.method} />
+            {manual ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber/30 bg-amber/15 px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase text-amber-600">
+                <span className="h-1 w-1 rounded-full bg-current" /> Manual
+              </span>
+            ) : autoMatch ? (
+              <MatchBadge confidence={autoMatch.confidence} method={autoMatch.method} />
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan/30 bg-cyan/15 px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase text-cyan-600">
-                <span className="h-1 w-1 rounded-full bg-current" />
-                _Pendentes
+                <span className="h-1 w-1 rounded-full bg-current" /> _Pendentes
               </span>
             )}
           </div>
-          {match ? (
-            <p className="mt-2 font-serif text-2xl italic text-navy break-words">{match.folder.name}</p>
-          ) : (
-            <>
-              <p className="mt-2 font-serif text-xl italic text-navy/80 break-words">
-                Pasta não encontrada na Apolo
+          <div className="mt-2">
+            {destination.kind === 'folder' ? (
+              <p className="font-serif text-2xl italic text-navy break-words">{destination.folder.name}</p>
+            ) : (
+              <>
+                <p className="font-serif text-xl italic text-navy/80 break-words">Pasta não encontrada</p>
+                <p className="mt-1 font-mono text-[11px] text-navy/50">
+                  Vai pra <span className="text-cyan-600">_Pendentes / {destination.name}</span>
+                </p>
+              </>
+            )}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-navy/8 pt-3">
+            <button
+              onClick={() => setShowSearch(true)}
+              className="font-mono text-[11px] tracking-wider uppercase text-navy/70 transition active:scale-95 active:text-navy"
+            >
+              ↻ Trocar pasta
+            </button>
+            {fileName && (
+              <p className="ml-3 truncate font-mono text-[11px] text-navy/40">
+                {fileName}
               </p>
-              <p className="mt-1 font-mono text-[11px] text-navy/50">
-                Vai pra <span className="text-cyan-600">_Pendentes / {result.patient_name}</span>
-              </p>
-            </>
-          )}
-          {fileName && (
-            <p className="mt-3 border-t border-navy/8 pt-3 font-mono text-[11px] text-navy/60 break-all">
-              {fileName}
-            </p>
-          )}
+            )}
+          </div>
         </section>
+
+        {wasEdited && (
+          <p className="mt-3 text-center font-mono text-[10px] tracking-wider uppercase text-amber-600">
+            ✱ correções manuais detectadas
+          </p>
+        )}
       </div>
 
-      {/* Fixed footer with action */}
+      {/* Footer actions */}
       <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-navy/8 bg-bone/95 px-5 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)] backdrop-blur-lg">
         <div className="flex items-center gap-3">
           <button
@@ -143,14 +225,50 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
             disabled={!canSave}
             className="flex h-14 flex-[1.6] items-center justify-center gap-2 rounded-2xl bg-amber px-3 font-mono text-[11px] tracking-wider uppercase text-navy-deep shadow-amber transition active:scale-[0.98] disabled:opacity-40 disabled:bg-bone-200 disabled:shadow-none"
           >
-            {match
-              ? <>Salvar em <span className="ml-1 truncate max-w-[140px] normal-case font-serif italic">{match.folder.name}</span></>
-              : 'Salvar em _Pendentes'}
+            {destination.kind === 'folder' ? (
+              <>Salvar em <span className="ml-1 max-w-[140px] truncate normal-case font-serif italic">{destination.folder.name}</span></>
+            ) : (
+              'Salvar em _Pendentes'
+            )}
             <span>→</span>
           </button>
         </div>
       </footer>
+
+      {showSearch && (
+        <FolderSearch
+          folders={folders}
+          initialQuery={editedName}
+          onSelect={(sel) => {
+            if ('id' in sel) {
+              setManual({ kind: 'folder', folder: sel });
+            } else {
+              setManual({ kind: 'pendente', name: sel.name });
+            }
+            setShowSearch(false);
+          }}
+          onClose={() => setShowSearch(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function TypeButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`group flex flex-1 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition active:scale-[0.98] ${
+        active
+          ? 'border-navy bg-navy text-bone shadow-soft'
+          : 'border-navy/15 bg-bone text-navy/60 hover:border-navy/30'
+      }`}
+    >
+      <span className={`grid h-8 w-8 place-items-center rounded-lg ${active ? 'bg-bone/15 text-amber' : 'bg-navy/8 text-navy/50'}`}>
+        {icon}
+      </span>
+      <span className="font-serif text-sm italic leading-tight">{label}</span>
+    </button>
   );
 }
 
@@ -185,29 +303,29 @@ function MatchBadge({ confidence, method }: { confidence: number; method: string
   );
 }
 
-function DocTypeIcon({ type }: { type: AnalyzeResult['document_type'] }) {
-  if (type === 'guia_internacao') {
-    return (
-      <div className="grid h-10 w-10 place-items-center rounded-xl bg-cyan/15 text-cyan-600">
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" /><path d="M9 12h6M9 16h4" />
-        </svg>
-      </div>
-    );
-  }
-  if (type === 'descricao_cirurgica') {
-    return (
-      <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber/15 text-amber-600">
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m14.121 15.536-2.121 2.121a4 4 0 0 1-5.657-5.657l3.536-3.536" /><path d="M3 21h6l11-11a2.121 2.121 0 0 0-3-3L6 18v3z" />
-        </svg>
-      </div>
-    );
-  }
+function PencilIcon() {
   return (
-    <div className="grid h-10 w-10 place-items-center rounded-xl bg-navy/8 text-navy/40">
-      <span className="text-xl">?</span>
-    </div>
+    <span className="mt-2 grid h-7 w-7 flex-none place-items-center rounded-md bg-navy/8 text-navy/50">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+        <path d="m14.121 15.536-2.121 2.121a4 4 0 0 1-5.657-5.657l3.536-3.536" /><path d="M3 21h6l11-11a2.121 2.121 0 0 0-3-3L6 18v3z" />
+      </svg>
+    </span>
+  );
+}
+
+function GuiaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+      <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" /><path d="M9 12h6M9 16h4" />
+    </svg>
+  );
+}
+
+function DescricaoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+      <path d="m14.121 15.536-2.121 2.121a4 4 0 0 1-5.657-5.657l3.536-3.536" /><path d="M3 21h6l11-11a2.121 2.121 0 0 0-3-3L6 18v3z" />
+    </svg>
   );
 }
 
@@ -224,3 +342,4 @@ function ErrorBanner({ error }: { error: 'not_recognized' | 'multiple_documents'
     </div>
   );
 }
+
