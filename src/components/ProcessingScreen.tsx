@@ -1,13 +1,32 @@
 import { Logo } from './Logo';
 
-const STEPS = [
-  'Comprimindo imagens',
-  'Enviando ao Claude',
-  'Lendo o documento',
-  'Identificando paciente',
-];
+const STEPS_BY_PHASE = {
+  analyzing: ['Comprimindo imagens', 'Enviando ao Claude', 'Lendo o documento', 'Identificando paciente'],
+  saving: ['Gerando PDF', 'Encontrando pasta no Drive', 'Subindo o arquivo', 'Confirmando'],
+} as const;
 
-export function ProcessingScreen({ pageCount }: { pageCount: number }) {
+const COPY_BY_PHASE = {
+  analyzing: {
+    eyebrow: 'processando',
+    title: 'analisando o documento',
+    subtitle: 'A IA está lendo o nome da paciente e identificando o tipo. Costuma levar 3 a 6 segundos.',
+  },
+  saving: {
+    eyebrow: 'arquivando',
+    title: 'salvando no Drive',
+    subtitle: 'Montando o PDF e enviando direto pra pasta da paciente. Quase lá.',
+  },
+};
+
+type Props = {
+  pageCount: number;
+  phase?: 'analyzing' | 'saving';
+};
+
+export function ProcessingScreen({ pageCount, phase = 'analyzing' }: Props) {
+  const copy = COPY_BY_PHASE[phase];
+  const steps = STEPS_BY_PHASE[phase];
+
   return (
     <div className="flex min-h-[100svh] flex-col bg-bone">
       <header className="px-5 pt-[max(env(safe-area-inset-top),0.75rem)] pb-4">
@@ -25,17 +44,15 @@ export function ProcessingScreen({ pageCount }: { pageCount: number }) {
         </div>
 
         <p className="font-mono text-[10px] tracking-[0.28em] uppercase text-navy/40">
-          processando
+          {copy.eyebrow}
         </p>
         <h1 className="mt-2 max-w-xs font-serif text-4xl italic leading-tight text-navy">
-          analisando o documento
+          {copy.title}
         </h1>
-        <p className="mt-3 max-w-xs text-sm leading-relaxed text-navy/60">
-          A IA está lendo o nome da paciente e identificando o tipo. Costuma levar 3 a 6 segundos.
-        </p>
+        <p className="mt-3 max-w-xs text-sm leading-relaxed text-navy/60">{copy.subtitle}</p>
 
         <ul className="mt-10 flex flex-col gap-2.5">
-          {STEPS.map((step, idx) => (
+          {steps.map((step, idx) => (
             <li
               key={step}
               className="flex items-center gap-2 font-mono text-[11px] tracking-wide uppercase text-navy/50"

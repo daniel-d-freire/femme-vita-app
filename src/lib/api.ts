@@ -1,4 +1,5 @@
 import type { CapturedPage } from './camera';
+import type { FolderMatch } from './folder-match';
 
 export type AuthUser = {
   email: string;
@@ -96,4 +97,59 @@ export function confidenceLabel(value: number): { label: string; tone: 'high' | 
   if (value >= 0.95) return { label: 'Alta', tone: 'high' };
   if (value >= 0.75) return { label: 'Média', tone: 'medium' };
   return { label: 'Baixa', tone: 'low' };
+}
+
+export type UploadResponse = {
+  ok: true;
+  fileId: string;
+  fileName: string;
+  webViewLink?: string;
+  folderId: string;
+  folderName: string;
+  wasPendente: boolean;
+  sizeKb: number;
+  timing: { pdfMs: number; uploadMs: number; totalMs: number };
+};
+
+export type UploadTarget =
+  | { kind: 'folderId'; folderId: string }
+  | { kind: 'pendente'; patientName: string };
+
+export async function uploadDocument(
+  pages: CapturedPage[],
+  fileName: string,
+  target: UploadTarget
+): Promise<UploadResponse> {
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      images: pages.map((p) => p.dataUrl),
+      fileName,
+      target,
+    }),
+  });
+  if (!response.ok) {
+    let body: AnalyzeError = { error: 'http_error', message: `HTTP ${response.status}` };
+    try { body = await response.json(); } catch { /* ignore */ }
+    throw new ApiError(response.status, body);
+  }
+  return (await response.json()) as UploadResponse;
+}
+
+/**
+ * Auto-save eligibility per spec §4.6:
+ *   min(confidence_name, confidence_type) ≥ 0.95
+ *   AND match exists with confidence 1.0 (exact)
+ */
+export function isAutoSaveEligible(
+  result: AnalyzeResult,
+  match: FolderMatch | null
+): boolean {
+  if (result.error !== null) return false;
+  if (!result.document_type) return false;
+  if (!match) return false; // _Pendentes case → still needs intent to click
+  if (match.confidence !== 1.0) return false;
+  return Math.min(result.confidence_name, result.confidence_type) >= 0.95;
 }

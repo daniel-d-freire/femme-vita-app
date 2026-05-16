@@ -137,6 +137,101 @@ export async function findApoloFolder(accessToken: string): Promise<DriveFolder 
   return data.files[0];
 }
 
+export async function createSubfolder(
+  accessToken: string,
+  parentId: string,
+  name: string
+): Promise<DriveFolder> {
+  const response = await fetch(`${DRIVE_FILES_URL}?fields=id,name,parents`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Falha ao criar subpasta: ${response.status} ${text}`);
+  }
+  return (await response.json()) as DriveFolder;
+}
+
+export async function findSubfolderByName(
+  accessToken: string,
+  parentId: string,
+  name: string
+): Promise<DriveFolder | null> {
+  const safe = name.replace(/'/g, "\\'");
+  const params = new URLSearchParams({
+    q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id,name,parents)',
+    pageSize: '1',
+  });
+  const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Falha ao buscar subpasta '${name}': ${response.status}`);
+  }
+  const data = (await response.json()) as { files: DriveFolder[] };
+  return data.files[0] ?? null;
+}
+
+export async function findOrCreateSubfolder(
+  accessToken: string,
+  parentId: string,
+  name: string
+): Promise<DriveFolder> {
+  const existing = await findSubfolderByName(accessToken, parentId, name);
+  if (existing) return existing;
+  return createSubfolder(accessToken, parentId, name);
+}
+
+export async function uploadFileToDrive(
+  accessToken: string,
+  parentId: string,
+  fileName: string,
+  mimeType: string,
+  bytes: Uint8Array
+): Promise<{ id: string; name: string; webViewLink?: string }> {
+  const boundary = '----femme-vita-' + Math.random().toString(36).slice(2);
+  const metadata = JSON.stringify({ name: fileName, parents: [parentId] });
+
+  const head = Buffer.from(
+    `--${boundary}\r\n` +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      metadata +
+      `\r\n--${boundary}\r\n` +
+      `Content-Type: ${mimeType}\r\n` +
+      'Content-Transfer-Encoding: binary\r\n\r\n',
+    'utf8'
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--`, 'utf8');
+  const body = Buffer.concat([head, Buffer.from(bytes), tail]);
+
+  const response = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    }
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Falha ao subir arquivo ao Drive: ${response.status} ${text}`);
+  }
+  return (await response.json()) as { id: string; name: string; webViewLink?: string };
+}
+
 export async function listSubfolders(
   accessToken: string,
   parentId: string,

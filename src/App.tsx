@@ -4,24 +4,31 @@ import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { LoginScreen } from './components/LoginScreen';
+import { SavedScreen } from './components/SavedScreen';
 import type { CapturedPage } from './lib/camera';
 import {
   ApiError,
   analyzePages,
   fetchAuthState,
   fetchFolders,
+  isAutoSaveEligible,
   logout,
+  uploadDocument,
   type AnalyzeResult,
   type AuthUser,
   type FoldersResponse,
+  type UploadResponse,
+  type UploadTarget,
 } from './lib/api';
+import { buildFileName, matchFolder } from './lib/folder-match';
 
 type Screen =
   | { kind: 'camera' }
   | { kind: 'review' }
-  | { kind: 'processing' }
+  | { kind: 'processing'; phase: 'analyzing' | 'saving' }
   | { kind: 'result'; result: AnalyzeResult }
-  | { kind: 'error'; message: string };
+  | { kind: 'saved'; result: UploadResponse }
+  | { kind: 'error'; message: string; recoverable: 'analyze' | 'save' };
 
 type AuthStatus =
   | { kind: 'loading' }
@@ -33,7 +40,6 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'camera' });
   const [pages, setPages] = useState<CapturedPage[]>([]);
 
-  // Check auth + fetch folders on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -44,7 +50,6 @@ export default function App() {
           setAuth({ kind: 'unauthenticated' });
           return;
         }
-        // Fetch folders in parallel
         try {
           const folders = await fetchFolders();
           if (cancelled) return;
@@ -70,22 +75,59 @@ export default function App() {
     setPages((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
+  const performSave = useCallback(
+    async (currentPages: CapturedPage[], target: UploadTarget, fileName: string) => {
+      setScreen({ kind: 'processing', phase: 'saving' });
+      try {
+        const uploaded = await uploadDocument(currentPages, fileName, target);
+        setScreen({ kind: 'saved', result: uploaded });
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.body.message || err.body.error || 'Erro ao salvar.'
+            : err instanceof Error
+              ? err.message
+              : 'Erro ao salvar.';
+        setScreen({ kind: 'error', message, recoverable: 'save' });
+      }
+    },
+    []
+  );
+
   const handleSubmit = useCallback(async () => {
-    if (pages.length === 0) return;
-    setScreen({ kind: 'processing' });
+    if (pages.length === 0 || auth.kind !== 'authenticated') return;
+    setScreen({ kind: 'processing', phase: 'analyzing' });
     try {
       const result = await analyzePages(pages);
+      const folders = auth.folders?.folders ?? [];
+      const match = result.patient_name ? matchFolder(result.patient_name, folders) : null;
+
+      if (isAutoSaveEligible(result, match) && match && result.document_type) {
+        // Happy path: high confidence + exact match → save automatically.
+        const fileName = buildFileName(result.document_type, match.folder.name);
+        await performSave(pages, { kind: 'folderId', folderId: match.folder.id }, fileName);
+        return;
+      }
+
+      // Otherwise, present the result for manual confirmation.
       setScreen({ kind: 'result', result });
     } catch (err) {
-      let message = 'Erro ao analisar o documento.';
-      if (err instanceof ApiError) {
-        message = err.body.message || err.body.error || message;
-      } else if (err instanceof Error) {
-        message = err.message;
-      }
-      setScreen({ kind: 'error', message });
+      const message =
+        err instanceof ApiError
+          ? err.body.message || err.body.error || 'Erro ao analisar.'
+          : err instanceof Error
+            ? err.message
+            : 'Erro ao analisar.';
+      setScreen({ kind: 'error', message, recoverable: 'analyze' });
     }
-  }, [pages]);
+  }, [pages, auth, performSave]);
+
+  const handleManualSave = useCallback(
+    (target: UploadTarget, fileName: string) => {
+      performSave(pages, target, fileName);
+    },
+    [pages, performSave]
+  );
 
   const handleRestart = useCallback(() => {
     setPages([]);
@@ -99,34 +141,33 @@ export default function App() {
     setScreen({ kind: 'camera' });
   }, []);
 
-  if (auth.kind === 'loading') {
-    return <BootScreen />;
-  }
-
-  if (auth.kind === 'unauthenticated') {
-    return <LoginScreen error={auth.error} />;
-  }
+  if (auth.kind === 'loading') return <BootScreen />;
+  if (auth.kind === 'unauthenticated') return <LoginScreen error={auth.error} />;
 
   // Authenticated
   switch (screen.kind) {
     case 'processing':
-      return <ProcessingScreen pageCount={pages.length} />;
+      return <ProcessingScreen pageCount={pages.length} phase={screen.phase} />;
 
     case 'result':
       return (
         <ResultScreen
           result={screen.result}
           pageCount={pages.length}
-          onRestart={handleRestart}
+          folders={auth.folders?.folders ?? []}
+          onSave={handleManualSave}
           onBackToReview={() => setScreen({ kind: 'review' })}
         />
       );
+
+    case 'saved':
+      return <SavedScreen result={screen.result} onNewDocument={handleRestart} />;
 
     case 'error':
       return (
         <ErrorScreen
           message={screen.message}
-          onRetry={handleSubmit}
+          onRetry={screen.recoverable === 'analyze' ? handleSubmit : () => setScreen({ kind: 'review' })}
           onBack={() => setScreen({ kind: 'review' })}
         />
       );
@@ -174,7 +215,7 @@ function ErrorScreen({ message, onRetry, onBack }: { message: string; onRetry: (
         </svg>
       </div>
       <p className="font-mono text-[10px] tracking-[0.28em] uppercase text-navy/40">algo deu errado</p>
-      <h1 className="mt-2 max-w-sm font-serif text-3xl italic leading-tight text-navy">Não consegui ler agora</h1>
+      <h1 className="mt-2 max-w-sm font-serif text-3xl italic leading-tight text-navy">Não consegui salvar agora</h1>
       <p className="mt-3 max-w-sm text-sm leading-relaxed text-navy/60">{message}</p>
       <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
         <button
