@@ -35,7 +35,7 @@ export function CropScreen({ pendingPage, onConfirm, onRetake, onSkip }: Props) 
   const [corners, setCorners] = useState<Corners>(
     defaultCorners(pendingPage.width, pendingPage.height)
   );
-  const [filter, setFilter] = useState<FilterKind>('bw');
+  const [filter, setFilter] = useState<FilterKind>('gray');
   const [draggingHandle, setDraggingHandle] = useState<keyof Corners | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 

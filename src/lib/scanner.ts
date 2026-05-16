@@ -213,19 +213,37 @@ export async function rectifyAndFilter(
 
   // Build output mat per filter.
   let final: CvAny = warped;
-  let extras: CvAny[] = [];
-  if (filter === 'bw') {
+  const extras: CvAny[] = [];
+  if (filter === 'bw' || filter === 'gray') {
+    // Grayscale base.
     const gray: CvAny = new cv.Mat();
     cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
-    const bw: CvAny = new cv.Mat();
-    // Adaptive threshold gives a scanner look that handles uneven lighting.
-    cv.adaptiveThreshold(gray, bw, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, 10);
-    final = bw;
-    extras = [gray];
-  } else if (filter === 'gray') {
-    const gray: CvAny = new cv.Mat();
-    cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
-    final = gray;
+    extras.push(gray);
+
+    // CLAHE: local contrast enhancement. Helps faded form fields and shadows
+    // without destroying text anti-aliasing the way a hard threshold would.
+    const clahed: CvAny = new cv.Mat();
+    const clahe: CvAny = new cv.CLAHE(2.5, new cv.Size(16, 16));
+    clahe.apply(gray, clahed);
+    clahe.delete();
+    extras.push(clahed);
+
+    if (filter === 'gray') {
+      final = clahed;
+    } else {
+      // 'bw': light Gaussian blur to suppress sensor noise, then Otsu.
+      // Otsu is a global threshold (one value for the whole page) — much
+      // cleaner for evenly-lit documents than adaptive thresholding, which
+      // tends to speckle small text on medical forms.
+      const blurred: CvAny = new cv.Mat();
+      cv.GaussianBlur(clahed, blurred, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
+      extras.push(blurred);
+
+      const bw: CvAny = new cv.Mat();
+      cv.threshold(blurred, bw, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+      extras.push(bw);
+      final = bw;
+    }
   }
 
   const canvas = document.createElement('canvas');
@@ -240,8 +258,12 @@ export async function rectifyAndFilter(
   M.delete();
   warped.delete();
   for (const m of extras) m.delete();
-  if (filter !== 'color') final.delete();
 
+  // PNG for B&W (hard edges → JPEG would introduce ringing artifacts);
+  // JPEG for color/grayscale (much smaller, no perceptible quality loss).
+  if (filter === 'bw') {
+    return canvas.toDataURL('image/png');
+  }
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
