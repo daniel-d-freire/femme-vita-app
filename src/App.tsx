@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CameraScreen } from './components/CameraScreen';
+import { CropScreen } from './components/CropScreen';
 import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
@@ -21,9 +22,11 @@ import {
   type UploadTarget,
 } from './lib/api';
 import { buildFileName, matchFolder } from './lib/folder-match';
+import { loadOpenCV } from './lib/scanner';
 
 type Screen =
   | { kind: 'camera' }
+  | { kind: 'crop'; pending: CapturedPage }
   | { kind: 'review' }
   | { kind: 'processing'; phase: 'analyzing' | 'saving' }
   | { kind: 'result'; result: AnalyzeResult }
@@ -59,6 +62,8 @@ export default function App() {
           const msg = err instanceof ApiError ? (err.body.message || err.body.error) : (err as Error).message;
           setAuth({ kind: 'authenticated', user: state.user, folders: null, foldersError: msg });
         }
+        // Preload OpenCV in the background so the first crop is instant.
+        loadOpenCV().catch(() => undefined);
       } catch (err) {
         if (cancelled) return;
         setAuth({ kind: 'unauthenticated', error: (err as Error).message });
@@ -68,7 +73,23 @@ export default function App() {
   }, []);
 
   const handleCapture = useCallback((page: CapturedPage) => {
-    setPages((prev) => [...prev, page]);
+    // Route captures through the crop step.
+    setScreen({ kind: 'crop', pending: page });
+  }, []);
+
+  const handleCropConfirm = useCallback((processed: CapturedPage) => {
+    setPages((prev) => [...prev, processed]);
+    setScreen({ kind: 'camera' });
+  }, []);
+
+  const handleCropSkip = useCallback((raw: CapturedPage) => {
+    setPages((prev) => [...prev, raw]);
+    setScreen({ kind: 'camera' });
+  }, []);
+
+  const handleCropRetake = useCallback(() => {
+    // Discard the pending capture and return to camera.
+    setScreen({ kind: 'camera' });
   }, []);
 
   const handleRemove = useCallback((id: string) => {
@@ -103,13 +124,11 @@ export default function App() {
       const match = result.patient_name ? matchFolder(result.patient_name, folders) : null;
 
       if (isAutoSaveEligible(result, match) && match && result.document_type) {
-        // Happy path: high confidence + exact match → save automatically.
         const fileName = buildFileName(result.document_type, match.folder.name);
         await performSave(pages, { kind: 'folderId', folderId: match.folder.id }, fileName);
         return;
       }
 
-      // Otherwise, present the result for manual confirmation.
       setScreen({ kind: 'result', result });
     } catch (err) {
       const message =
@@ -144,8 +163,17 @@ export default function App() {
   if (auth.kind === 'loading') return <BootScreen />;
   if (auth.kind === 'unauthenticated') return <LoginScreen error={auth.error} />;
 
-  // Authenticated
   switch (screen.kind) {
+    case 'crop':
+      return (
+        <CropScreen
+          pendingPage={screen.pending}
+          onConfirm={handleCropConfirm}
+          onSkip={handleCropSkip}
+          onRetake={handleCropRetake}
+        />
+      );
+
     case 'processing':
       return <ProcessingScreen pageCount={pages.length} phase={screen.phase} />;
 
