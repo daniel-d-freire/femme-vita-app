@@ -1,10 +1,9 @@
 /**
  * Document scanner: detects paper edges, rectifies perspective, applies B&W
- * "scanner" filter. Uses OpenCV.js loaded dynamically from CDN — first call
- * incurs an ~8MB download (cached afterwards by the browser).
+ * "scanner" filter. Uses OpenCV.js bundled as a static asset in /public.
  */
 
-const OPENCV_URL = 'https://docs.opencv.org/4.x/opencv.js';
+const OPENCV_URL = '/opencv.js';
 
 export type Point = { x: number; y: number };
 export type Corners = {
@@ -279,4 +278,48 @@ export function defaultCorners(width: number, height: number): Corners {
     bottomRight: { x: width - m, y: height - m },
     bottomLeft: { x: m, y: height - m },
   };
+}
+
+/**
+ * Rotates the image by `degrees` clockwise (0/90/180/270) via 2D canvas.
+ * 0 is a no-op (returns the original dataUrl unchanged). Output format
+ * mirrors the input (PNG stays PNG, anything else becomes JPEG q=0.92).
+ *
+ * Used to apply the orientation correction Claude returns
+ * (`rotation_to_apply`) so the final PDF shows the document upright,
+ * regardless of how the page was photographed.
+ */
+export async function rotateImageCW(
+  dataUrl: string,
+  degrees: 0 | 90 | 180 | 270
+): Promise<string> {
+  if (degrees === 0) return dataUrl;
+  const img = await loadImage(dataUrl);
+
+  const canvas = document.createElement('canvas');
+  if (degrees === 180) {
+    canvas.width = img.width;
+    canvas.height = img.height;
+  } else {
+    canvas.width = img.height;
+    canvas.height = img.width;
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Não foi possível criar contexto 2D para rotação.');
+
+  if (degrees === 90) {
+    ctx.translate(canvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+  } else if (degrees === 180) {
+    ctx.translate(canvas.width, canvas.height);
+    ctx.rotate(Math.PI);
+  } else {
+    // 270 CW == 90 CCW
+    ctx.translate(0, canvas.height);
+    ctx.rotate(-Math.PI / 2);
+  }
+  ctx.drawImage(img, 0, 0);
+
+  const isPng = dataUrl.startsWith('data:image/png');
+  return isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
 }
