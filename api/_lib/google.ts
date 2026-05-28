@@ -79,6 +79,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
   });
   if (!response.ok) {
     const text = await response.text();
+    if (text.includes('invalid_grant')) {
+      throw new Error('token_expired');
+    }
     throw new Error(`Falha no refresh do token: ${response.status} ${text}`);
   }
   const data = (await response.json()) as TokenResponse;

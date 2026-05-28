@@ -22,7 +22,7 @@ import {
   type UploadTarget,
 } from './lib/api';
 import { buildFileName, matchFolder } from './lib/folder-match';
-import { loadOpenCV } from './lib/scanner';
+import { loadOpenCV, rotateImageCW } from './lib/scanner';
 
 type Screen =
   | { kind: 'camera' }
@@ -97,12 +97,34 @@ export default function App() {
   }, []);
 
   const performSave = useCallback(
-    async (currentPages: CapturedPage[], target: UploadTarget, fileName: string) => {
+    async (
+      currentPages: CapturedPage[],
+      target: UploadTarget,
+      fileName: string,
+      rotation: AnalyzeResult['rotation_to_apply']
+    ) => {
       setScreen({ kind: 'processing', phase: 'saving' });
       try {
-        const uploaded = await uploadDocument(currentPages, fileName, target);
+        // Log pra debug: confirma o que Claude reportou.
+        console.log(`[femme-vita] rotation_to_apply = ${rotation}° (file: ${fileName})`);
+        // Aplica a rotação que o Claude reportou pra deixar o documento em pé
+        // (0 é no-op). Combina com a auto-orientação da página PDF no servidor
+        // pra garantir que a página final fica na orientação correta.
+        const finalPages =
+          rotation > 0
+            ? await Promise.all(
+                currentPages.map(async (p) => ({ ...p, dataUrl: await rotateImageCW(p.dataUrl, rotation) }))
+              )
+            : currentPages;
+        const uploaded = await uploadDocument(finalPages, fileName, target);
         setScreen({ kind: 'saved', result: uploaded });
       } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          setAuth({ kind: 'unauthenticated', error: 'Sua sessão expirou. Faça login novamente.' });
+          setPages([]);
+          setScreen({ kind: 'camera' });
+          return;
+        }
         const message =
           err instanceof ApiError
             ? err.body.message || err.body.error || 'Erro ao salvar.'
@@ -125,12 +147,23 @@ export default function App() {
 
       if (isAutoSaveEligible(result, match) && match && result.document_type) {
         const fileName = buildFileName(result.document_type, match.folder.name);
-        await performSave(pages, { kind: 'folderId', folderId: match.folder.id }, fileName);
+        await performSave(
+          pages,
+          { kind: 'folderId', folderId: match.folder.id },
+          fileName,
+          result.rotation_to_apply
+        );
         return;
       }
 
       setScreen({ kind: 'result', result });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAuth({ kind: 'unauthenticated', error: 'Sua sessão expirou. Faça login novamente.' });
+        setPages([]);
+        setScreen({ kind: 'camera' });
+        return;
+      }
       const message =
         err instanceof ApiError
           ? err.body.message || err.body.error || 'Erro ao analisar.'
@@ -142,8 +175,8 @@ export default function App() {
   }, [pages, auth, performSave]);
 
   const handleManualSave = useCallback(
-    (target: UploadTarget, fileName: string) => {
-      performSave(pages, target, fileName);
+    (target: UploadTarget, fileName: string, rotation: AnalyzeResult['rotation_to_apply']) => {
+      performSave(pages, target, fileName, rotation);
     },
     [pages, performSave]
   );
@@ -182,6 +215,7 @@ export default function App() {
         <ResultScreen
           result={screen.result}
           pageCount={pages.length}
+          firstPageDataUrl={pages[0]?.dataUrl ?? ''}
           folders={auth.folders?.folders ?? []}
           onSave={handleManualSave}
           onBackToReview={() => setScreen({ kind: 'review' })}

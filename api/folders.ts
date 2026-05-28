@@ -63,6 +63,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown_error';
+    if (message === 'token_expired') {
+      return res.status(401).json({ error: 'token_expired', message: 'Sessão expirada. Faça login novamente.' });
+    }
     console.error('[folders] error:', message);
     return res.status(500).json({ error: 'folders_failed', message });
   }
