@@ -41,10 +41,11 @@ export async function logout(): Promise<void> {
 
 export type AnalyzeResult = {
   patient_name: string;
-  document_type: 'guia_internacao' | 'descricao_cirurgica' | null;
+  document_type: 'guia_internacao' | 'descricao_cirurgica' | 'guia_honorarios_assinada' | null;
   confidence_name: number;
   confidence_type: number;
   error: 'not_recognized' | 'multiple_documents' | null;
+  rotation_to_apply: 0 | 90 | 180 | 270;
   elapsedMs: number;
 };
 
@@ -90,6 +91,7 @@ export class ApiError extends Error {
 export function formatDocumentType(type: AnalyzeResult['document_type']): string {
   if (type === 'guia_internacao') return 'Guia de internação';
   if (type === 'descricao_cirurgica') return 'Descrição cirúrgica';
+  if (type === 'guia_honorarios_assinada') return 'Guia de honorários assinada';
   return 'Não identificado';
 }
 
@@ -151,5 +153,8 @@ export function isAutoSaveEligible(
   if (!result.document_type) return false;
   if (!match) return false; // _Pendentes case → still needs intent to click
   if (match.confidence !== 1.0) return false;
+  // Guia de honorários assinada sempre cai na ResultScreen pra o faturista
+  // confirmar visualmente a orientação — vision models erram esse campo às vezes.
+  if (result.document_type === 'guia_honorarios_assinada') return false;
   return Math.min(result.confidence_name, result.confidence_type) >= 0.95;
 }

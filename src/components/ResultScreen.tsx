@@ -9,7 +9,7 @@ import {
 import type { Folder, FolderMatch } from '../lib/folder-match';
 import { matchFolder, buildFileName } from '../lib/folder-match';
 
-type DocType = 'guia_internacao' | 'descricao_cirurgica';
+type DocType = 'guia_internacao' | 'descricao_cirurgica' | 'guia_honorarios_assinada';
 type Manual =
   | { kind: 'folder'; folder: Folder }
   | { kind: 'pendente'; name: string };
@@ -17,18 +17,31 @@ type Manual =
 type Props = {
   result: AnalyzeResult;
   pageCount: number;
+  firstPageDataUrl: string;
   folders: Folder[];
-  onSave: (target: UploadTarget, fileName: string) => void;
+  onSave: (
+    target: UploadTarget,
+    fileName: string,
+    rotation: AnalyzeResult['rotation_to_apply']
+  ) => void;
   onBackToReview: () => void;
 };
 
-export function ResultScreen({ result, pageCount, folders, onSave, onBackToReview }: Props) {
+type Rotation = 0 | 90 | 180 | 270;
+
+export function ResultScreen({ result, pageCount, firstPageDataUrl, folders, onSave, onBackToReview }: Props) {
   const [editedName, setEditedName] = useState(result.patient_name);
   const [editedType, setEditedType] = useState<DocType | null>(result.document_type);
   const [editingName, setEditingName] = useState(false);
   const [manual, setManual] = useState<Manual | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  const [userRotation, setUserRotation] = useState<Rotation>(0);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Rotação final = o que Claude reportou + o ajuste manual do usuário.
+  const effectiveRotation = (
+    (result.rotation_to_apply + userRotation) % 360
+  ) as Rotation;
 
   // Re-run matching whenever the edited name changes — unless user manually overrode.
   const autoMatch = useMemo<FolderMatch | null>(
@@ -66,12 +79,16 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
   const canSave = !!editedType && !!editedName && !hasError;
 
   const handleSave = () => {
-    if (!fileName) return;
+    if (!fileName || !editedType) return;
     if (destination.kind === 'folder') {
-      onSave({ kind: 'folderId', folderId: destination.folder.id }, fileName);
+      onSave({ kind: 'folderId', folderId: destination.folder.id }, fileName, effectiveRotation);
     } else {
-      onSave({ kind: 'pendente', patientName: destination.name }, fileName);
+      onSave({ kind: 'pendente', patientName: destination.name }, fileName, effectiveRotation);
     }
+  };
+
+  const cycleRotation = () => {
+    setUserRotation((prev) => ((prev + 90) % 360) as Rotation);
   };
 
   return (
@@ -139,7 +156,7 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
             </p>
             <ConfidenceBadge tone={typeConf.tone} value={result.confidence_type} />
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-col gap-2">
             <TypeButton
               active={editedType === 'guia_internacao'}
               onClick={() => setEditedType('guia_internacao')}
@@ -151,6 +168,12 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
               onClick={() => setEditedType('descricao_cirurgica')}
               icon={<DescricaoIcon />}
               label="Descrição cirúrgica"
+            />
+            <TypeButton
+              active={editedType === 'guia_honorarios_assinada'}
+              onClick={() => setEditedType('guia_honorarios_assinada')}
+              icon={<HonorariosIcon />}
+              label="Guia de honorários assinada"
             />
           </div>
         </section>
@@ -203,6 +226,41 @@ export function ResultScreen({ result, pageCount, folders, onSave, onBackToRevie
             )}
           </div>
         </section>
+
+        {/* Preview da orientação — usuária confirma visualmente antes de salvar */}
+        {firstPageDataUrl && (
+          <section className="mt-3 rounded-2xl border border-navy/8 bg-bone-50 p-5 shadow-soft">
+            <div className="flex items-baseline justify-between">
+              <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-navy/40">
+                Pré-visualização {userRotation !== 0 && <span className="ml-1 text-amber-600">· ajustada</span>}
+              </p>
+              <p className="font-mono text-[10px] tracking-wide uppercase text-navy/40">
+                {effectiveRotation}°
+              </p>
+            </div>
+            <div className="mt-3 flex items-stretch gap-3">
+              <div className="h-36 w-36 flex-none grid place-items-center overflow-hidden rounded-xl border border-navy/10 bg-bone">
+                <img
+                  src={firstPageDataUrl}
+                  alt="prévia da página"
+                  style={{ transform: `rotate(${effectiveRotation}deg)` }}
+                  className="max-h-full max-w-full transition-transform duration-300 ease-out"
+                />
+              </div>
+              <div className="flex flex-1 flex-col justify-between gap-2">
+                <p className="font-serif text-sm italic leading-snug text-navy/70">
+                  Confira se o documento está em pé. Se não, gire.
+                </p>
+                <button
+                  onClick={cycleRotation}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-navy/15 bg-bone px-4 font-mono text-[11px] tracking-wider uppercase text-navy transition active:scale-95"
+                >
+                  <RotateIcon /> Girar 90°
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {wasEdited && (
           <p className="mt-3 text-center font-mono text-[10px] tracking-wider uppercase text-amber-600">
@@ -329,10 +387,31 @@ function DescricaoIcon() {
   );
 }
 
+function RotateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+      <path d="M21 12a9 9 0 1 1-9-9c2.34 0 4.5.91 6.13 2.4" />
+      <polyline points="21 3 21 9 15 9" />
+    </svg>
+  );
+}
+
+function HonorariosIcon() {
+  // Document with a signature swoosh + underline — signals "assinada".
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+      <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+      <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+      <path d="M8 14c1.5-1.5 2.5 1 4 0s2.5-1.5 4 0" />
+      <path d="M8 18h8" />
+    </svg>
+  );
+}
+
 function ErrorBanner({ error }: { error: 'not_recognized' | 'multiple_documents' }) {
   const message =
     error === 'not_recognized'
-      ? 'Não reconheci este documento como guia de internação nem descrição cirúrgica.'
+      ? 'Não reconheci este documento como guia de internação, descrição cirúrgica ou guia de honorários assinada.'
       : 'Detectei mais de um documento na imagem. Tire fotos separadas, um documento por vez.';
 
   return (

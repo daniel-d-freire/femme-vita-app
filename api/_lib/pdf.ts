@@ -5,7 +5,8 @@ const A4_HEIGHT = 841.89;
 
 /**
  * Builds a single PDF from one or more image data URLs.
- * Each image becomes one A4 page, aspect-ratio preserved, centered.
+ * Each image becomes one A4 page (portrait OR landscape, chosen per image
+ * to match its aspect ratio), aspect-ratio preserved, centered.
  */
 export async function buildPdfFromDataUrls(dataUrls: string[]): Promise<Uint8Array> {
   if (dataUrls.length === 0) throw new Error('Nenhuma imagem para o PDF.');
@@ -22,13 +23,17 @@ export async function buildPdfFromDataUrls(dataUrls: string[]): Promise<Uint8Arr
         ? await doc.embedPng(parsed.bytes)
         : await doc.embedJpg(parsed.bytes);
 
-    const page = doc.addPage([A4_WIDTH, A4_HEIGHT]);
-    const scale = Math.min(A4_WIDTH / image.width, A4_HEIGHT / image.height);
+    const isLandscape = image.width > image.height;
+    const pageW = isLandscape ? A4_HEIGHT : A4_WIDTH;
+    const pageH = isLandscape ? A4_WIDTH : A4_HEIGHT;
+
+    const page = doc.addPage([pageW, pageH]);
+    const scale = Math.min(pageW / image.width, pageH / image.height);
     const w = image.width * scale;
     const h = image.height * scale;
     page.drawImage(image, {
-      x: (A4_WIDTH - w) / 2,
-      y: (A4_HEIGHT - h) / 2,
+      x: (pageW - w) / 2,
+      y: (pageH - h) / 2,
       width: w,
       height: h,
     });

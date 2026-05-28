@@ -6,15 +6,16 @@ const MAX_TOKENS = 1024;
 
 export const AnalyzeResultSchema = z.object({
   patient_name: z.string(),
-  document_type: z.enum(['guia_internacao', 'descricao_cirurgica']).nullable(),
+  document_type: z.enum(['guia_internacao', 'descricao_cirurgica', 'guia_honorarios_assinada']).nullable(),
   confidence_name: z.number().min(0).max(1),
   confidence_type: z.number().min(0).max(1),
   error: z.enum(['not_recognized', 'multiple_documents']).nullable(),
+  rotation_to_apply: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
 });
 
 export type AnalyzeResult = z.infer<typeof AnalyzeResultSchema>;
 
-const SYSTEM_PROMPT = `Você é um assistente que lê documentos médicos brasileiros: guias de internação hospitalar e descrições cirúrgicas.
+const SYSTEM_PROMPT = `Você é um assistente que lê documentos médicos brasileiros: guias de internação hospitalar, descrições cirúrgicas e guias de honorários assinadas.
 
 Você recebe uma ou mais imagens de páginas do MESMO documento. Analise e extraia:
 
@@ -30,14 +31,44 @@ Você recebe uma ou mais imagens de páginas do MESMO documento. Analise e extra
        equipe cirúrgica (cirurgião, auxiliares, anestesista, instrumentadora),
        técnica/tempo cirúrgico, anestesia, achados intraoperatórios,
        síntese/sutura, sangramento, complicações, etc.
+   - "guia_honorarios_assinada" → guia de honorários médicos PREENCHIDA E ASSINADA. Critérios OBRIGATÓRIOS, ambos têm que estar presentes:
+       (a) Título "GUIA DE HONORÁRIOS" (geralmente com subtítulo "Somente para pacientes internados") no cabeçalho.
+       (b) Assinatura e/ou carimbo VISÍVEL no campo "Assinatura do Profissional Executante" (carimbo da médica executora — tipicamente Priscila Guyt Rebelo, CRM 52972460, Ginecologia e Obstetrícia — ou rabisco de assinatura claramente sobreposto à linha).
+     Se o título "GUIA DE HONORÁRIOS" estiver presente mas NÃO houver assinatura/carimbo visível, NÃO classifique como "guia_honorarios_assinada" — defina document_type=null e error="not_recognized".
 3. Confiança de cada campo, de 0.0 a 1.0.
+4. ORIENTAÇÃO DA IMAGEM (rotation_to_apply) — LEIA COM ATENÇÃO:
+
+   AVISO CRÍTICO: você é uma vision model treinada para ler textos automaticamente, mesmo quando estão rotacionados. Para esta tarefa específica, RESISTA esse impulso. Você DEVE reportar a orientação REAL DOS PIXELS da imagem que recebeu, não a orientação corrigida mentalmente.
+
+   PROCESSO OBRIGATÓRIO (siga literalmente, em voz interna):
+
+   PASSO 1 — Identifique o cabeçalho/título principal do documento:
+     • Guia de internação: o título grande "GUIA DE INTERNAÇÃO..." / "AUTORIZAÇÃO DE INTERNAÇÃO" no topo do formulário
+     • Descrição cirúrgica: o cabeçalho institucional ou primeira linha do relato
+     • Guia de honorários assinada: o título grande "GUIA DE HONORÁRIOS" no topo do formulário
+
+   PASSO 2 — Encontre esse cabeçalho NOS PIXELS da imagem que você recebeu. Em qual das 4 BORDAS DA IMAGEM (não do documento — da imagem!) ele está fisicamente mais próximo?
+     - borda superior (topo da imagem)
+     - borda inferior (parte de baixo da imagem)
+     - borda esquerda da imagem
+     - borda direita da imagem
+
+   PASSO 3 — Mapeie para rotation_to_apply (graus no sentido horário pra deixar em pé):
+     cabeçalho na BORDA SUPERIOR  → rotation_to_apply = 0    (já está em pé)
+     cabeçalho na BORDA ESQUERDA  → rotation_to_apply = 90   (documento deitado pra esquerda)
+     cabeçalho na BORDA INFERIOR  → rotation_to_apply = 180  (documento de cabeça pra baixo)
+     cabeçalho na BORDA DIREITA   → rotation_to_apply = 270  (documento deitado pra direita)
+
+   EXEMPLO DO ERRO QUE VOCÊ DEVE EVITAR:
+   Se a imagem mostra "GUIA DE HONORÁRIOS" claramente DE CABEÇA PRA BAIXO (você consegue interpretar o texto invertido, mas as letras estão fisicamente giradas 180°), reporte 180. NÃO reporte 0 só porque conseguiu entender o conteúdo.
 
 REGRAS IMPORTANTES:
 - Se houver incerteza sobre o tipo do documento, BAIXE confidence_type.
 - Se o nome estiver borrado, manchado, parcial ou ilegível, BAIXE confidence_name.
-- O nome a extrair é APENAS da PACIENTE. Ignore nomes de médicos, anestesistas, auxiliares, instrumentadoras, beneficiárias jurídicas, atendentes.
-- Procure o campo "Nome do Beneficiário", "Paciente", "Nome do Paciente", ou similar.
-- Se a imagem não for nem guia de internação nem descrição cirúrgica, defina error="not_recognized".
+- O nome a extrair é APENAS da PACIENTE / BENEFICIÁRIA. Ignore nomes de médicos, anestesistas, auxiliares, instrumentadoras, beneficiárias jurídicas, atendentes, prestadores ou contratados executantes.
+- Na Guia de Honorários, o nome da paciente está no campo "Nome" dentro do bloco "Dados do Beneficiário" — NÃO confunda com "Nome do Contratado" (que é a profissional/empresa executante).
+- Procure os campos "Nome do Beneficiário", "Paciente", "Nome do Paciente", ou similar, conforme o documento.
+- Se a imagem não for nenhum dos três tipos reconhecidos, defina error="not_recognized".
 - Se houver claramente mais de um documento diferente fotografado na mesma imagem, defina error="multiple_documents".
 - Quando definir error, ainda devolva patient_name e document_type com os melhores valores possíveis, mas com confidence baixa.
 
@@ -45,10 +76,11 @@ Responda APENAS em JSON válido, sem markdown, sem texto antes ou depois, sem co
 
 {
   "patient_name": "string (vazio se não encontrado)",
-  "document_type": "guia_internacao" | "descricao_cirurgica" | null,
+  "document_type": "guia_internacao" | "descricao_cirurgica" | "guia_honorarios_assinada" | null,
   "confidence_name": 0.0,
   "confidence_type": 0.0,
-  "error": null | "not_recognized" | "multiple_documents"
+  "error": null | "not_recognized" | "multiple_documents",
+  "rotation_to_apply": 0 | 90 | 180 | 270
 }`;
 
 export type ImageInput = {

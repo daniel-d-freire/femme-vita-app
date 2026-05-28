@@ -104,12 +104,16 @@ export function matchFolder(extracted: string, folders: Folder[]): FolderMatch |
  * Builds the final file name following the project convention:
  *   Guia_internação_<NOME>.pdf
  *   Descrição_cirúrgica_<NOME>.pdf
+ *   Guia_honorários_assinada_<NOME>.pdf
  */
 export function buildFileName(
-  documentType: 'guia_internacao' | 'descricao_cirurgica',
+  documentType: 'guia_internacao' | 'descricao_cirurgica' | 'guia_honorarios_assinada',
   patientName: string
 ): string {
-  const prefix = documentType === 'guia_internacao' ? 'Guia_internação' : 'Descrição_cirúrgica';
+  const prefix =
+    documentType === 'guia_internacao' ? 'Guia_internação' :
+    documentType === 'descricao_cirurgica' ? 'Descrição_cirúrgica' :
+    'Guia_honorários_assinada';
   // Trim and replace any path-hostile characters; keep accents.
   const clean = patientName
     .replace(/[\\/:*?"<>|]/g, '')
