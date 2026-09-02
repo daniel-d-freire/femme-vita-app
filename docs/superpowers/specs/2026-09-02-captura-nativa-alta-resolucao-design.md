@@ -141,3 +141,18 @@ export async function loadPhotoFile(file: File): Promise<CapturedPage>
   o pico. Se houver crash em iPhone antigo, baixar `MAX_PAGE_DIMENSION` para 2200.
 - Guias com 4+ páginas em cor podem estourar 4,2 MB mesmo a 1900 px; o erro
   já é tratado na tela de erro existente.
+
+## Resultado da verificação (2026-09-02, navegador desktop, foto simulada 3024×4032)
+
+| Etapa | Dimensões | Tamanho | Formato |
+|---|---|---|---|
+| Foto decodificada (`loadPhotoFile`) | 1950 × 2600 | 760 KB | JPEG |
+| Página processada, filtro Cinza (vai pro PDF) | 1551 × 2222 (≈190 DPI) | 751 KB | JPEG |
+| Página processada, filtro P&B | 1551 × 2222 | 262 KB | PNG |
+| Cópia para análise (`downscaleDataUrl`) | 1117 × 1600 | 357 KB | JPEG |
+| Guarda ×4 páginas, orçamento real (4,2 MB) | 3,9 MB → sem reencode | | |
+| Guarda ×4 páginas, orçamento forçado (2 MB) | 4,1 MB → 2,3 MB em 1327 × 1900 | | |
+
+Antes da mudança as guias saíam com 800 × ~1100 px (≈90 DPI). Detecção de bordas
+acertou a folha inclinada 1,5° (polígono entre 8% e 91% da imagem). `tsc`, `eslint`
+e `vitest` (10 testes) limpos; `vite build` ok. Teste real no iPhone pendente.
