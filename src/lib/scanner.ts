@@ -3,7 +3,12 @@
  * "scanner" filter. Uses OpenCV.js bundled as a static asset in /public.
  */
 
+import { fitWithin, loadImage, MAX_PAGE_DIMENSION } from './camera';
+
 const OPENCV_URL = '/opencv.js';
+
+/** Lado maior da cópia usada só para detectar bordas (rápida no celular). */
+const DETECT_MAX_DIMENSION = 1000;
 
 export type Point = { x: number; y: number };
 export type Corners = {
@@ -68,17 +73,31 @@ export function isOpenCVReady(): boolean {
   return Boolean((window as any).cv?.Mat);
 }
 
-function loadImage(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Falha ao carregar imagem.'));
-    img.src = dataUrl;
-  });
-}
-
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+export function scaleCorners(c: Corners, factor: number): Corners {
+  const s = (p: Point): Point => ({ x: p.x * factor, y: p.y * factor });
+  return {
+    topLeft: s(c.topLeft),
+    topRight: s(c.topRight),
+    bottomRight: s(c.bottomRight),
+    bottomLeft: s(c.bottomLeft),
+  };
+}
+
+export function clampCorners(c: Corners, width: number, height: number): Corners {
+  const k = (p: Point): Point => ({
+    x: Math.min(width, Math.max(0, p.x)),
+    y: Math.min(height, Math.max(0, p.y)),
+  });
+  return {
+    topLeft: k(c.topLeft),
+    topRight: k(c.topRight),
+    bottomRight: k(c.bottomRight),
+    bottomLeft: k(c.bottomLeft),
+  };
 }
 
 /**
@@ -89,7 +108,18 @@ function distance(a: Point, b: Point): number {
 export async function detectPaperCorners(dataUrl: string): Promise<Corners | null> {
   await loadOpenCV();
   const img = await loadImage(dataUrl);
-  const srcMat: CvAny = cv.imread(img);
+  const fullW = img.naturalWidth;
+  const fullH = img.naturalHeight;
+
+  // Detecta numa cópia pequena: Canny/contornos ficam rápidos e leves em memória.
+  const fit = fitWithin(fullW, fullH, DETECT_MAX_DIMENSION);
+  const small = document.createElement('canvas');
+  small.width = fit.width;
+  small.height = fit.height;
+  const sctx = small.getContext('2d');
+  if (!sctx) throw new Error('Não foi possível criar contexto 2D.');
+  sctx.drawImage(img, 0, 0, fit.width, fit.height);
+  const srcMat: CvAny = cv.imread(small);
 
   const gray: CvAny = new cv.Mat();
   const edges: CvAny = new cv.Mat();
@@ -122,7 +152,10 @@ export async function detectPaperCorners(dataUrl: string): Promise<Corners | nul
     }
 
     const contour: CvAny = contours.get(maxIdx);
-    return cornersFromContour(contour, srcMat);
+    const found = cornersFromContour(contour, srcMat);
+    if (!found) return null;
+    // Volta para as coordenadas da imagem original.
+    return clampCorners(scaleCorners(found, 1 / fit.scale), fullW, fullH);
   } finally {
     srcMat.delete();
     gray.delete();
@@ -189,8 +222,11 @@ export async function rectifyAndFilter(
   const widthBottom = distance(corners.bottomLeft, corners.bottomRight);
   const heightLeft = distance(corners.topLeft, corners.bottomLeft);
   const heightRight = distance(corners.topRight, corners.bottomRight);
-  const outW = Math.max(Math.round((widthTop + widthBottom) / 2), 800);
-  const outH = Math.max(Math.round((heightLeft + heightRight) / 2), 800);
+  // Tamanho real medido pelos cantos (sem piso: esticar não cria detalhe),
+  // limitado ao teto da página.
+  const measuredW = Math.max(1, Math.round((widthTop + widthBottom) / 2));
+  const measuredH = Math.max(1, Math.round((heightLeft + heightRight) / 2));
+  const { width: outW, height: outH } = fitWithin(measuredW, measuredH, MAX_PAGE_DIMENSION);
 
   const srcTri: CvAny = cv.matFromArray(4, 1, cv.CV_32FC2, [
     corners.topLeft.x, corners.topLeft.y,
@@ -208,7 +244,7 @@ export async function rectifyAndFilter(
   const M: CvAny = cv.getPerspectiveTransform(srcTri, dstTri);
   const warped: CvAny = new cv.Mat();
   const dsize: CvAny = new cv.Size(outW, outH);
-  cv.warpPerspective(srcMat, warped, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+  cv.warpPerspective(srcMat, warped, M, dsize, cv.INTER_CUBIC, cv.BORDER_CONSTANT, new cv.Scalar());
 
   // Build output mat per filter.
   let final: CvAny = warped;
@@ -263,7 +299,7 @@ export async function rectifyAndFilter(
   if (filter === 'bw') {
     return canvas.toDataURL('image/png');
   }
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', 0.88);
 }
 
 /**
@@ -283,7 +319,7 @@ export function defaultCorners(width: number, height: number): Corners {
 /**
  * Rotates the image by `degrees` clockwise (0/90/180/270) via 2D canvas.
  * 0 is a no-op (returns the original dataUrl unchanged). Output format
- * mirrors the input (PNG stays PNG, anything else becomes JPEG q=0.92).
+ * mirrors the input (PNG stays PNG, anything else becomes JPEG q=0.9).
  *
  * Used to apply the orientation correction Claude returns
  * (`rotation_to_apply`) so the final PDF shows the document upright,
@@ -321,5 +357,5 @@ export async function rotateImageCW(
   ctx.drawImage(img, 0, 0);
 
   const isPng = dataUrl.startsWith('data:image/png');
-  return isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
+  return isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
 }
