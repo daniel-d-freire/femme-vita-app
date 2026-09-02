@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Logo } from './Logo';
-import type { CapturedPage } from '../lib/camera';
+import { estimateDataUrlBytes, loadImage, type CapturedPage } from '../lib/camera';
 import {
   defaultCorners,
   detectPaperCorners,
@@ -105,16 +105,14 @@ export function CropScreen({ pendingPage, onConfirm, onRetake, onSkip }: Props) 
     setPhase({ kind: 'processing' });
     try {
       const processedUrl = await rectifyAndFilter(pendingPage.dataUrl, corners, filter);
-      // Approximate dimensions from new dataUrl (we know the JPEG quality keeps it close to original).
-      // Use Image to get exact size.
       const img = await loadImage(processedUrl);
-      const approxBytes = Math.round((processedUrl.length - 'data:image/jpeg;base64,'.length) * 0.75);
+      console.log(`[femme-vita] página processada ${img.naturalWidth}×${img.naturalHeight} (${filter})`);
       const processed: CapturedPage = {
         id: pendingPage.id,
         dataUrl: processedUrl,
-        width: img.width,
-        height: img.height,
-        bytes: approxBytes,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        bytes: estimateDataUrlBytes(processedUrl),
         capturedAt: pendingPage.capturedAt,
       };
       onConfirm(processed);
@@ -287,13 +285,4 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
       {children}
     </button>
   );
-}
-
-function loadImage(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Falha ao carregar imagem processada.'));
-    img.src = dataUrl;
-  });
 }
