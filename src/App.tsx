@@ -6,7 +6,7 @@ import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { SavedScreen } from './components/SavedScreen';
-import type { CapturedPage } from './lib/camera';
+import { fitPagesToBudget, formatBytes, payloadBytes, type CapturedPage } from './lib/camera';
 import {
   ApiError,
   analyzePages,
@@ -110,12 +110,17 @@ export default function App() {
         // Aplica a rotação que o Claude reportou pra deixar o documento em pé
         // (0 é no-op). Combina com a auto-orientação da página PDF no servidor
         // pra garantir que a página final fica na orientação correta.
-        const finalPages =
+        const rotatedPages =
           rotation > 0
             ? await Promise.all(
                 currentPages.map(async (p) => ({ ...p, dataUrl: await rotateImageCW(p.dataUrl, rotation) }))
               )
             : currentPages;
+        // Guarda de tamanho: a Vercel rejeita corpos acima de 4,5 MB.
+        const finalPages = await fitPagesToBudget(rotatedPages);
+        console.log(
+          `[femme-vita] upload ${finalPages.length} pág., ${formatBytes(payloadBytes(finalPages.map((p) => p.dataUrl)))}`
+        );
         const uploaded = await uploadDocument(finalPages, fileName, target);
         setScreen({ kind: 'saved', result: uploaded });
       } catch (err) {

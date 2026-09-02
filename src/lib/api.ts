@@ -1,4 +1,4 @@
-import type { CapturedPage } from './camera';
+import { downscaleDataUrl, type CapturedPage } from './camera';
 import type { FolderMatch } from './folder-match';
 
 export type AuthUser = {
@@ -58,10 +58,13 @@ export type AnalyzeError = {
 const API_BASE = import.meta.env.DEV ? '' : '';
 
 export async function analyzePages(pages: CapturedPage[]): Promise<AnalyzeResult> {
+  // O Claude reduz imagens para ~1568px de qualquer forma; mandar a versão
+  // grande só deixa a requisição mais lenta.
+  const images = await Promise.all(pages.map((p) => downscaleDataUrl(p.dataUrl)));
   const response = await fetch(`${API_BASE}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ images: pages.map((p) => p.dataUrl) }),
+    body: JSON.stringify({ images }),
   });
 
   if (!response.ok) {
