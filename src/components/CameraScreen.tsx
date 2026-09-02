@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { Logo } from './Logo';
-import { captureFrame, startCamera, stopCamera, type CameraStreamHandle, type CapturedPage } from '../lib/camera';
+import { loadPhotoFile, type CapturedPage } from '../lib/camera';
 import type { AuthUser } from '../lib/api';
 
 type Props = {
@@ -13,71 +13,70 @@ type Props = {
   onLogout: () => void;
 };
 
-type CameraState =
-  | { kind: 'starting' }
-  | { kind: 'ready' }
-  | { kind: 'denied' }
+type CaptureState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
   | { kind: 'error'; message: string };
 
+const TIPS = ['luz uniforme, sem flash', 'folha inteira dentro do quadro', 'sem sombra da mão'];
+
 export function CameraScreen({ pages, onCapture, onReview, user, folderCount, foldersError, onLogout }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const handleRef = useRef<CameraStreamHandle | null>(null);
-  const [state, setState] = useState<CameraState>({ kind: 'starting' });
-  const [flash, setFlash] = useState(false);
-  const [capturing, setCapturing] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [state, setState] = useState<CaptureState>({ kind: 'idle' });
   const [showMenu, setShowMenu] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const handle = await startCamera('environment');
-        if (cancelled) {
-          stopCamera(handle);
-          return;
-        }
-        handleRef.current = handle;
-        if (videoRef.current) {
-          videoRef.current.srcObject = handle.stream;
-          await videoRef.current.play().catch(() => undefined);
-        }
-        setState({ kind: 'ready' });
-      } catch (err) {
-        const e = err as DOMException;
-        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-          setState({ kind: 'denied' });
-        } else {
-          setState({ kind: 'error', message: e.message || 'Erro ao iniciar câmera.' });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      stopCamera(handleRef.current);
-      handleRef.current = null;
-    };
-  }, []);
-
-  const onShutter = useCallback(async () => {
-    if (state.kind !== 'ready' || !videoRef.current || capturing) return;
-    setCapturing(true);
-    setFlash(true);
+  const onFileChosen = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    // Permite escolher o mesmo arquivo de novo.
+    input.value = '';
+    if (!file) return;
+    setState({ kind: 'loading' });
     try {
-      const page = await captureFrame(videoRef.current);
+      const page = await loadPhotoFile(file);
+      console.log(`[femme-vita] foto ${file.type} → ${page.width}×${page.height}`);
+      setState({ kind: 'idle' });
       onCapture(page);
     } catch (err) {
-      console.error(err);
-    } finally {
-      setTimeout(() => setFlash(false), 280);
-      setTimeout(() => setCapturing(false), 320);
+      const message = err instanceof Error ? err.message : 'Erro ao ler a foto.';
+      setState({ kind: 'error', message });
     }
-  }, [state, capturing, onCapture]);
+  }, [onCapture]);
+
+  const openCamera = useCallback(() => {
+    if (state.kind === 'loading') return;
+    cameraInputRef.current?.click();
+  }, [state.kind]);
+
+  const openGallery = useCallback(() => {
+    if (state.kind === 'loading') return;
+    galleryInputRef.current?.click();
+  }, [state.kind]);
 
   const lastPage = pages[pages.length - 1];
   const initial = (user.name?.[0] || user.email[0] || '?').toUpperCase();
+  const isLoading = state.kind === 'loading';
 
   return (
     <div className="relative flex h-[100svh] w-full flex-col bg-navy-deep overflow-hidden">
+      {/* Inputs ocultos: câmera nativa (capture) e galeria. */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={onFileChosen}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={onFileChosen}
+      />
+
       {/* Header */}
       <header className="relative z-20 flex items-start justify-between px-5 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
         <Logo variant="light" size="sm" />
@@ -127,67 +126,74 @@ export function CameraScreen({ pages, onCapture, onReview, user, folderCount, fo
         </div>
       )}
 
-      {/* Viewfinder */}
-      <div className="relative flex-1 overflow-hidden">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+      {/* Bancada: moldura A4 com orientação */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-6">
+        <button
+          onClick={openCamera}
+          disabled={isLoading}
+          className="relative aspect-[210/297] h-[78%] max-h-[560px] w-auto max-w-[88%] rounded-[2px] text-left transition active:scale-[0.99] disabled:cursor-wait"
+          aria-label="Fotografar documento"
+        >
+          <Corner pos="tl" />
+          <Corner pos="tr" />
+          <Corner pos="bl" />
+          <Corner pos="br" />
 
-        {/* A4 frame guide */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative h-[78%] w-[88%] max-w-[480px] rounded-[2px]">
-            <Corner pos="tl" />
-            <Corner pos="tr" />
-            <Corner pos="bl" />
-            <Corner pos="br" />
-            {state.kind === 'ready' && pages.length === 0 && (
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <p className="font-serif text-2xl italic text-bone/85">Enquadre o documento</p>
-                <p className="mt-1.5 font-mono text-[10px] tracking-[0.18em] uppercase text-bone/40">Mantenha estável</p>
-              </div>
+          {/* Sugestão de formulário: barras que lembram os campos de uma guia */}
+          <div className="pointer-events-none absolute inset-x-[14%] top-[12%] flex flex-col gap-2.5" aria-hidden>
+            <div className="h-2 w-2/3 rounded-full bg-bone/10" />
+            <div className="h-2 w-full rounded-full bg-bone/[0.07]" />
+            <div className="h-2 w-5/6 rounded-full bg-bone/[0.07]" />
+            <div className="h-2 w-1/2 rounded-full bg-bone/[0.07]" />
+          </div>
+
+          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 text-center">
+            {state.kind === 'error' ? (
+              <>
+                <p className="font-serif text-2xl italic text-danger">Não consegui ler a foto</p>
+                <p className="mt-2 text-sm text-bone/60">{state.message}</p>
+                <p className="mt-4 font-mono text-[10px] tracking-[0.18em] uppercase text-bone/40">toque para tentar de novo</p>
+              </>
+            ) : (
+              <>
+                <p className="font-serif text-2xl italic text-bone/90">
+                  {pages.length === 0 ? 'Fotografe a guia' : `Página ${pages.length + 1}`}
+                </p>
+                <ul className="mt-4 space-y-1.5">
+                  {TIPS.map((tip) => (
+                    <li key={tip} className="font-mono text-[10px] tracking-[0.16em] uppercase text-bone/40">
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
-        </div>
 
-        {/* Flash */}
-        {flash && <div className="pointer-events-none absolute inset-0 z-10 bg-bone animate-flash" />}
-
-        {/* Loading / Error states */}
-        {state.kind !== 'ready' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-navy-deep/95 backdrop-blur-sm">
-            <div className="max-w-xs px-6 text-center">
-              {state.kind === 'starting' && (
-                <>
-                  <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-bone/20 border-t-amber" />
-                  <p className="font-serif text-2xl italic text-bone">iniciando câmera</p>
-                </>
-              )}
-              {state.kind === 'denied' && (
-                <>
-                  <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-danger/20 flex items-center justify-center">
-                    <span className="text-danger text-2xl">⊘</span>
-                  </div>
-                  <p className="font-serif text-xl text-bone mb-2">Permissão de câmera negada</p>
-                  <p className="text-sm text-bone/60">Permita o acesso nas configurações do navegador e recarregue a página.</p>
-                </>
-              )}
-              {state.kind === 'error' && (
-                <>
-                  <p className="font-serif text-xl text-bone mb-2">Algo deu errado</p>
-                  <p className="text-sm text-bone/60">{state.message}</p>
-                </>
-              )}
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-[2px] bg-navy-deep/85 backdrop-blur-sm">
+              <div className="text-center">
+                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-2 border-bone/20 border-t-amber" />
+                <p className="font-serif text-xl italic text-bone">lendo a foto</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </button>
+      </div>
+
+      {/* Galeria */}
+      <div className="relative z-20 flex justify-center pb-2">
+        <button
+          onClick={openGallery}
+          disabled={isLoading}
+          className="rounded-full px-4 py-2 font-mono text-[10px] tracking-[0.18em] uppercase text-bone/50 transition active:scale-95 hover:text-bone disabled:opacity-40"
+        >
+          ou escolher da galeria
+        </button>
       </div>
 
       {/* Footer with controls */}
-      <footer className="relative z-20 grid grid-cols-3 items-center gap-4 px-5 pt-5 pb-[max(env(safe-area-inset-bottom),1.5rem)]">
+      <footer className="relative z-20 grid grid-cols-3 items-center gap-4 px-5 pt-2 pb-[max(env(safe-area-inset-bottom),1.5rem)]">
         {/* Last page thumb (tap to review) */}
         <div className="flex justify-start">
           {lastPage ? (
@@ -206,13 +212,13 @@ export function CameraScreen({ pages, onCapture, onReview, user, folderCount, fo
           )}
         </div>
 
-        {/* Shutter */}
+        {/* Shutter → câmera nativa */}
         <div className="flex justify-center">
           <button
-            onClick={onShutter}
-            disabled={state.kind !== 'ready' || capturing}
+            onClick={openCamera}
+            disabled={isLoading}
             className="group relative grid h-[78px] w-[78px] place-items-center rounded-full bg-amber shadow-amber transition active:scale-[0.92] disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Tirar foto"
+            aria-label="Abrir câmera"
           >
             <span className="absolute inset-0 rounded-full ring-2 ring-bone/40" />
             <span className="absolute inset-1.5 rounded-full ring-1 ring-navy-deep/30" />
