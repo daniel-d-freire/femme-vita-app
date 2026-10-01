@@ -69,6 +69,7 @@ REGRAS IMPORTANTES:
 - Na Guia de Honorários, o nome da paciente está no campo "Nome" dentro do bloco "Dados do Beneficiário" — NÃO confunda com "Nome do Contratado" (que é a profissional/empresa executante).
 - Procure os campos "Nome do Beneficiário", "Paciente", "Nome do Paciente", ou similar, conforme o documento.
 - Se a imagem não for nenhum dos três tipos reconhecidos, defina error="not_recognized".
+- A "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)" de consulta ou exame ambulatorial (campo "32-Tipo de Atendimento" 04 ou 23, campo "91-Regime de atendimento" 01) NÃO é guia de internação: defina document_type=null e error="not_recognized". Essa guia se digitaliza pelo modo SADT do app.
 - Se houver claramente mais de um documento diferente fotografado na mesma imagem, defina error="multiple_documents".
 - Quando definir error, ainda devolva patient_name e document_type com os melhores valores possíveis, mas com confidence baixa.
 
@@ -89,7 +90,22 @@ export type ImageInput = {
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 };
 
-export async function analyzeDocument(images: ImageInput[]): Promise<AnalyzeResult> {
+/** Acha o primeiro objeto JSON no texto do Claude e faz o parse, sem validar o formato. */
+export function extrairJson(raw: string): unknown {
+  const texto = raw.trim();
+  const jsonMatch = texto.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`Resposta do Claude não contém JSON: ${texto.slice(0, 200)}`);
+  }
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    throw new Error(`JSON inválido na resposta do Claude: ${(err as Error).message}`, { cause: err });
+  }
+}
+
+/** Manda as imagens com o prompt de sistema e devolve o JSON da resposta, ainda sem validar. */
+export async function pedirJsonAoClaude(systemPrompt: string, images: ImageInput[]): Promise<unknown> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY não está configurada no servidor.');
@@ -106,7 +122,7 @@ export async function analyzeDocument(images: ImageInput[]): Promise<AnalyzeResu
     system: [
       {
         type: 'text',
-        text: SYSTEM_PROMPT,
+        text: systemPrompt,
         cache_control: { type: 'ephemeral' },
       },
     ],
@@ -135,27 +151,17 @@ export async function analyzeDocument(images: ImageInput[]): Promise<AnalyzeResu
   if (!textBlock || textBlock.type !== 'text') {
     throw new Error('Resposta do Claude sem conteúdo de texto.');
   }
+  return extrairJson(textBlock.text);
+}
 
-  const raw = textBlock.text.trim();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(`Resposta do Claude não contém JSON: ${raw.slice(0, 200)}`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    throw new Error(`JSON inválido na resposta do Claude: ${(err as Error).message}`, { cause: err });
-  }
-
+export async function analyzeDocument(images: ImageInput[]): Promise<AnalyzeResult> {
+  const parsed = await pedirJsonAoClaude(SYSTEM_PROMPT, images);
   const validated = AnalyzeResultSchema.safeParse(parsed);
   if (!validated.success) {
     throw new Error(
       `Schema inválido na resposta do Claude: ${validated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`
     );
   }
-
   return validated.data;
 }
 

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { analyzeDocument, parseDataUrl } from './_lib/claude.js';
+import { analisarGuiaSadt } from './_lib/claude-sadt.js';
 
 export const config = {
   api: {
@@ -13,6 +14,7 @@ export const config = {
 
 const RequestBodySchema = z.object({
   images: z.array(z.string().startsWith('data:image/')).min(1).max(10),
+  modo: z.enum(['geral', 'sadt']).default('geral'),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -33,7 +35,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const images = parsed.data.images.map(parseDataUrl);
     const startedAt = Date.now();
-    const result = await analyzeDocument(images);
+    const result =
+      parsed.data.modo === 'sadt' ? await analisarGuiaSadt(images) : await analyzeDocument(images);
     const elapsedMs = Date.now() - startedAt;
 
     return res.status(200).json({
