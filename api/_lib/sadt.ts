@@ -7,27 +7,33 @@ export const SadtUploadSchema = z.object({
   paciente: z.string().trim().min(1).max(120),
   /** Nome como está impresso na guia (campo 10), conferido pela recepção. É o que o robô compara com o portal. */
   nomeNaGuia: z.string().trim().min(1).max(120),
-  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  data: z.iso.date(),
   senha: z.string().trim().max(30),
   carteira: z.string().trim().max(30),
   codigoProcedimento: z.string().trim().max(20),
 });
 export type SadtUpload = z.infer<typeof SadtUploadSchema>;
 
-const NOME_PDF_SADT = /^Guia_SADT_.+_\d{4}\.\d{2}\.\d{2}\.pdf$/;
+// eslint-disable-next-line no-control-regex -- os caracteres de controle são justamente o que se recusa no nome
+const NOME_PDF_SADT = /^Guia_SADT_[^\\/:*?"<>|\x00-\x1f]+_\d{4}\.\d{2}\.\d{2}\.pdf$/;
 
+/** Valida o nome que o cliente pede, antes do sufixo de colisão (_2, _3). */
 export function nomeSadtValido(nome: string): boolean {
   return NOME_PDF_SADT.test(nome);
 }
 
-/** O Drive aceita nomes repetidos; quem evita a colisão somos nós: _2, _3… antes do .pdf. */
+/**
+ * O Drive aceita nomes repetidos; quem evita a colisão somos nós: _2, _3… antes do .pdf.
+ * A comparação ignora maiúsculas (o disco do Windows onde o robô lê também ignora);
+ * o nome devolvido mantém a caixa original.
+ */
 export function nomeSemColisao(nome: string, existentes: string[]): string {
-  const usados = new Set(existentes);
-  if (!usados.has(nome)) return nome;
+  const usados = new Set(existentes.map((n) => n.toLowerCase()));
+  if (!usados.has(nome.toLowerCase())) return nome;
   const base = nome.replace(/\.pdf$/i, '');
   for (let n = 2; ; n++) {
     const candidato = `${base}_${n}.pdf`;
-    if (!usados.has(candidato)) return candidato;
+    if (!usados.has(candidato.toLowerCase())) return candidato;
   }
 }
 
@@ -39,6 +45,16 @@ export function pastaDoMes(dataIso: string): string {
 /** O registro tem o mesmo nome do PDF, com .json. */
 export function nomeDoRegistro(nomePdf: string): string {
   return nomePdf.replace(/\.pdf$/i, '.json');
+}
+
+/** Caminho de volta: o PDF que corresponde a um registro (para checar colisão contra _SADT/<mês>). */
+export function nomePdfDoRegistro(nomeJson: string): string {
+  return nomeJson.replace(/\.json$/i, '.pdf');
+}
+
+/** O nome do arquivo termina na data da guia? "…_2026.09.30.pdf" combina com "2026-09-30". */
+export function nomeCombinaComData(nomePdf: string, dataIso: string): boolean {
+  return nomePdf.endsWith(`_${dataIso.replace(/-/g, '.')}.pdf`);
 }
 
 /** Formato lido pelo robô faturar-sadt (spec, seção 9). Escrito uma vez, nunca editado pelo app. */
