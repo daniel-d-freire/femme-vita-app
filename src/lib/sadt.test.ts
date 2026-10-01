@@ -1,0 +1,74 @@
+// src/lib/sadt.test.ts
+import { describe, expect, it } from 'vitest';
+import { avisosSadt, dataBrParaIso, isoParaDataBr, nomeArquivoSadt, senhaPareceValida } from './sadt';
+
+describe('dataBrParaIso', () => {
+  it('converte DD/MM/AAAA para ISO', () => {
+    expect(dataBrParaIso('30/09/2026')).toBe('2026-09-30');
+  });
+  it('aceita dia e mês com um dígito', () => {
+    expect(dataBrParaIso('1/10/2026')).toBe('2026-10-01');
+  });
+  it('ignora espaços nas pontas', () => {
+    expect(dataBrParaIso(' 01/10/2026 ')).toBe('2026-10-01');
+  });
+  it('recusa data que não existe', () => {
+    expect(dataBrParaIso('31/09/2026')).toBeNull();
+    expect(dataBrParaIso('29/02/2026')).toBeNull();
+    expect(dataBrParaIso('00/10/2026')).toBeNull();
+  });
+  it('recusa formato errado', () => {
+    expect(dataBrParaIso('2026-09-30')).toBeNull();
+    expect(dataBrParaIso('')).toBeNull();
+    expect(dataBrParaIso('30/9/26')).toBeNull();
+  });
+});
+
+describe('isoParaDataBr', () => {
+  it('volta para DD/MM/AAAA', () => {
+    expect(isoParaDataBr('2026-09-30')).toBe('30/09/2026');
+  });
+});
+
+describe('nomeArquivoSadt', () => {
+  it('monta o nome com a data em AAAA.MM.DD', () => {
+    expect(nomeArquivoSadt('Maria Lima', '2026-10-01')).toBe('Guia_SADT_Maria Lima_2026.10.01.pdf');
+  });
+  it('preserva acentos e caixa alta da pasta', () => {
+    expect(nomeArquivoSadt('ANA CONCEIÇÃO', '2026-09-30')).toBe('Guia_SADT_ANA CONCEIÇÃO_2026.09.30.pdf');
+  });
+  it('tira caracteres proibidos e espaços repetidos', () => {
+    expect(nomeArquivoSadt(' Ana  / Lima? ', '2026-09-30')).toBe('Guia_SADT_Ana Lima_2026.09.30.pdf');
+  });
+});
+
+describe('senhaPareceValida', () => {
+  it('aceita a senha de 11 dígitos observada no portal', () => {
+    expect(senhaPareceValida('10022159716')).toBe(true);
+  });
+  it('recusa letra, vazio e senha curta demais', () => {
+    expect(senhaPareceValida('1002215971O')).toBe(false);
+    expect(senhaPareceValida('')).toBe(false);
+    expect(senhaPareceValida('12345')).toBe(false);
+  });
+});
+
+describe('avisosSadt', () => {
+  const ok = { codigo: '98250159', senha: '10022159716', confiancaSenha: 0.99, confiancaData: 0.99 };
+
+  it('não avisa nada quando é consulta e tudo veio com confiança alta', () => {
+    expect(avisosSadt(ok)).toEqual([]);
+  });
+  it('avisa código fora do escopo', () => {
+    expect(avisosSadt({ ...ok, codigo: '40901300' })).toEqual(['codigo_fora_do_escopo']);
+  });
+  it('avisa senha com confiança baixa', () => {
+    expect(avisosSadt({ ...ok, confiancaSenha: 0.8 })).toEqual(['senha_duvidosa']);
+  });
+  it('avisa senha inválida mesmo com confiança alta', () => {
+    expect(avisosSadt({ ...ok, senha: '' })).toEqual(['senha_duvidosa']);
+  });
+  it('avisa data com confiança baixa', () => {
+    expect(avisosSadt({ ...ok, confiancaData: 0.5 })).toEqual(['data_duvidosa']);
+  });
+});
