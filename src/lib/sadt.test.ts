@@ -17,6 +17,11 @@ describe('dataBrParaIso', () => {
     expect(dataBrParaIso('29/02/2026')).toBeNull();
     expect(dataBrParaIso('00/10/2026')).toBeNull();
   });
+  it('recusa ano fora de 2000-2099 e aceita 29/02 de ano bissexto', () => {
+    expect(dataBrParaIso('01/01/0999')).toBeNull();
+    expect(dataBrParaIso('01/01/2100')).toBeNull();
+    expect(dataBrParaIso('29/02/2028')).toBe('2028-02-29');
+  });
   it('recusa formato errado', () => {
     expect(dataBrParaIso('2026-09-30')).toBeNull();
     expect(dataBrParaIso('')).toBeNull();
@@ -39,6 +44,9 @@ describe('nomeArquivoSadt', () => {
   });
   it('tira caracteres proibidos e espaços repetidos', () => {
     expect(nomeArquivoSadt(' Ana  / Lima? ', '2026-09-30')).toBe('Guia_SADT_Ana Lima_2026.09.30.pdf');
+  });
+  it('tira os 9 caracteres proibidos do Windows de uma vez', () => {
+    expect(nomeArquivoSadt('A\\B/C:D*E?F"G<H>I|J', '2026-09-30')).toBe('Guia_SADT_ABCDEFGHIJ_2026.09.30.pdf');
   });
 });
 
@@ -67,6 +75,13 @@ describe('avisosSadt', () => {
   });
   it('avisa senha inválida mesmo com confiança alta', () => {
     expect(avisosSadt({ ...ok, senha: '' })).toEqual(['senha_duvidosa']);
+  });
+  it('não avisa quando a confiança é exatamente 0.95', () => {
+    expect(avisosSadt({ ...ok, confiancaSenha: 0.95, confiancaData: 0.95 })).toEqual([]);
+  });
+  it('avisa na dúvida quando a confiança vem inválida', () => {
+    expect(avisosSadt({ ...ok, confiancaSenha: Number.NaN })).toEqual(['senha_duvidosa']);
+    expect(avisosSadt({ ...ok, confiancaData: Number.NaN })).toEqual(['data_duvidosa']);
   });
   it('avisa data com confiança baixa', () => {
     expect(avisosSadt({ ...ok, confiancaData: 0.5 })).toEqual(['data_duvidosa']);

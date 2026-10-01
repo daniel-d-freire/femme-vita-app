@@ -15,6 +15,7 @@ export function dataBrParaIso(texto: string): string | null {
   const dia = Number(m[1]);
   const mes = Number(m[2]);
   const ano = Number(m[3]);
+  if (ano < 2000 || ano > 2099) return null;
   const d = new Date(Date.UTC(ano, mes - 1, dia));
   if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
   return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
@@ -47,7 +48,7 @@ export function avisosSadt(entrada: {
 }): AvisoSadt[] {
   const avisos: AvisoSadt[] = [];
   if (entrada.codigo.trim() !== CODIGO_CONSULTA) avisos.push('codigo_fora_do_escopo');
-  if (!senhaPareceValida(entrada.senha) || entrada.confiancaSenha < CONFIANCA_ALTA) avisos.push('senha_duvidosa');
-  if (entrada.confiancaData < CONFIANCA_ALTA) avisos.push('data_duvidosa');
+  if (!senhaPareceValida(entrada.senha) || !(entrada.confiancaSenha >= CONFIANCA_ALTA)) avisos.push('senha_duvidosa');
+  if (!(entrada.confiancaData >= CONFIANCA_ALTA)) avisos.push('data_duvidosa');
   return avisos;
 }
