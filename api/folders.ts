@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readSession, writeSession } from './_lib/session.js';
 import { ensureFreshAccessToken, findApoloFolder, listSubfolders } from './_lib/google.js';
+import { pastasDePacientes } from './_lib/pastas.js';
 
 type CacheEntry = {
   apoloFolderId: string;
@@ -53,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const folders = await listSubfolders(accessToken, apoloFolderId);
-    const trimmed = folders.map((f) => ({ id: f.id, name: f.name }));
+    const trimmed = pastasDePacientes(folders).map((f) => ({ id: f.id, name: f.name }));
     CACHE.set(cacheKey, { apoloFolderId, folders: trimmed, fetchedAt: Date.now() });
 
     return res.status(200).json({

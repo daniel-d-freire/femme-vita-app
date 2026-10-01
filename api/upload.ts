@@ -5,9 +5,22 @@ import {
   ensureFreshAccessToken,
   findApoloFolder,
   findOrCreateSubfolder,
+  listFileNamesInFolder,
   uploadFileToDrive,
 } from './_lib/google.js';
 import { buildPdfFromDataUrls } from './_lib/pdf.js';
+import {
+  SadtUploadSchema,
+  montarRegistro,
+  nomeCombinaComData,
+  nomeDoRegistro,
+  nomePdfDoRegistro,
+  nomeSadtValido,
+  nomeSemColisao,
+  pastaDoMes,
+  tentarAte,
+  type RegistroSadt,
+} from './_lib/sadt.js';
 
 export const config = {
   api: {
@@ -26,7 +39,21 @@ const RequestBodySchema = z.object({
     z.object({ kind: z.literal('folderId'), folderId: z.string() }),
     z.object({ kind: z.literal('pendente'), patientName: z.string().min(1) }),
   ]),
+  /** Presente só no modo SADT: grava também o registro em Apolo/_SADT/<AAAA.MM>/. */
+  sadt: SadtUploadSchema.optional(),
 });
+
+/**
+ * Registro da guia SADT para o robô de faturamento (spec, seção 9). Idempotente:
+ * se uma tentativa anterior gravou e só a resposta se perdeu, não grava de novo
+ * (dois registros com o mesmo nome confundiriam a chave do livro do robô).
+ */
+async function gravarRegistro(accessToken: string, pastaDoMesId: string, registro: RegistroSadt): Promise<void> {
+  const nome = nomeDoRegistro(registro.pdf.nome);
+  if ((await listFileNamesInFolder(accessToken, pastaDoMesId)).includes(nome)) return;
+  const bytes = new TextEncoder().encode(JSON.stringify(registro, null, 2));
+  await uploadFileToDrive(accessToken, pastaDoMesId, nome, 'application/json', bytes);
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store');
@@ -48,10 +75,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const sadt = parsed.data.sadt;
+  if (sadt && (!nomeSadtValido(parsed.data.fileName) || !nomeCombinaComData(parsed.data.fileName, sadt.data))) {
+    return res.status(400).json({
+      error: 'invalid_sadt_name',
+      message: 'Nome de guia SADT fora do padrão Guia_SADT_<Paciente>_<AAAA.MM.DD>.pdf, ou com data diferente da guia.',
+    });
+  }
+
   try {
     const accessToken = await ensureFreshAccessToken(session);
 
-    // Resolve Apolo folder id (needed only for _Pendentes case).
+    // Resolve Apolo folder id (needed for _Pendentes and for the SADT registro).
     let apoloFolderId = session.apoloFolderId;
     if (!apoloFolderId) {
       const apolo = await findApoloFolder(accessToken);
@@ -64,6 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apoloFolderId = apolo.id;
       session.apoloFolderId = apoloFolderId;
     }
+    const apoloId: string = apoloFolderId;
 
     // Resolve the target folder.
     let targetFolderId: string;
@@ -75,7 +111,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       targetFolderName = '(matched)';
     } else {
       // Create or find Apolo/_Pendentes/<patientName>/
-      const pendentesRoot = await findOrCreateSubfolder(accessToken, apoloFolderId, '_Pendentes');
+      const pendentesRoot = await findOrCreateSubfolder(accessToken, apoloId, '_Pendentes');
       const patientFolder = await findOrCreateSubfolder(
         accessToken,
         pendentesRoot.id,
@@ -93,14 +129,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const startedAt = Date.now();
     const pdfBytes = await buildPdfFromDataUrls(parsed.data.images);
     const pdfBuiltAt = Date.now();
+
+    let fileName = parsed.data.fileName;
+    let pastaDoMesId: string | null = null;
+    if (sadt) {
+      const raiz = await findOrCreateSubfolder(accessToken, apoloId, '_SADT');
+      const mes = await findOrCreateSubfolder(accessToken, raiz.id, pastaDoMes(sadt.data));
+      pastaDoMesId = mes.id;
+      const [naPasta, noMes] = await Promise.all([
+        listFileNamesInFolder(accessToken, targetFolderId),
+        listFileNamesInFolder(accessToken, mes.id),
+      ]);
+      // O nome do registro é a chave do livro do robô: tem de ser único também em
+      // _SADT/<mês>, e não só na pasta da paciente (pasta casada e _Pendentes podem
+      // gerar o mesmo nome).
+      fileName = nomeSemColisao(fileName, [...naPasta, ...noMes.map(nomePdfDoRegistro)]);
+    }
+
     const uploaded = await uploadFileToDrive(
       accessToken,
       targetFolderId,
-      parsed.data.fileName,
+      fileName,
       'application/pdf',
       pdfBytes
     );
     const uploadedAt = Date.now();
+
+    // O PDF já está salvo; o registro tenta 3 vezes e, se falhar, a tela avisa.
+    let registroFalhou = false;
+    if (sadt && pastaDoMesId) {
+      const mesId = pastaDoMesId;
+      const registro = montarRegistro({
+        sadt,
+        pdf: { id: uploaded.id, nome: uploaded.name },
+        pendente: wasPendente,
+        email: session.user.email,
+        agora: new Date(),
+      });
+      registroFalhou = !(await tentarAte(3, 500, () => gravarRegistro(accessToken, mesId, registro)));
+    }
 
     return res.status(200).json({
       ok: true,
@@ -110,6 +177,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       folderId: targetFolderId,
       folderName: targetFolderName,
       wasPendente,
+      renomeado: fileName !== parsed.data.fileName,
+      registroFalhou,
       sizeKb: Math.round(pdfBytes.byteLength / 1024),
       timing: {
         pdfMs: pdfBuiltAt - startedAt,

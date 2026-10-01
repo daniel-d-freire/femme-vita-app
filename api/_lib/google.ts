@@ -262,3 +262,27 @@ export async function listSubfolders(
   } while (pageToken);
   return all;
 }
+
+/** Nomes dos arquivos (não pastas) direto dentro de `parentId`. Usado para evitar nome repetido. */
+export async function listFileNamesInFolder(accessToken: string, parentId: string): Promise<string[]> {
+  const nomes: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: `'${parentId}' in parents and mimeType!='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'nextPageToken,files(name)',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      throw new Error(`Falha ao listar arquivos da pasta: ${response.status}`);
+    }
+    const data = (await response.json()) as { files: { name: string }[]; nextPageToken?: string };
+    nomes.push(...data.files.map((f) => f.name));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return nomes;
+}
