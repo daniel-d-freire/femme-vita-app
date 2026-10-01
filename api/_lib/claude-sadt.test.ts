@@ -10,6 +10,7 @@ const RESPOSTA = {
   senha: '10000000001',
   carteira: '2000000000001',
   codigo_procedimento: '98250159',
+  e_consulta: true,
   confidence_name: 0.98,
   confidence_data: 0.97,
   confidence_senha: 0.96,
@@ -38,5 +39,10 @@ describe('validarRespostaSadt', () => {
   });
   it('recusa resposta fora do schema', () => {
     expect(() => validarRespostaSadt({ ...RESPOSTA, rotation_to_apply: 45 })).toThrow(/Schema inválido/);
+  });
+  it('recusa resposta sem e_consulta', () => {
+    const semConsulta: Partial<typeof RESPOSTA> = { ...RESPOSTA };
+    delete semConsulta.e_consulta;
+    expect(() => validarRespostaSadt(semConsulta)).toThrow(/Schema inválido/);
   });
 });

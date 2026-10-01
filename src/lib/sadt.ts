@@ -38,16 +38,16 @@ export function senhaPareceValida(senha: string): boolean {
   return /^\d{6,20}$/.test(senha.trim());
 }
 
-export type AvisoSadt = 'codigo_fora_do_escopo' | 'senha_duvidosa' | 'data_duvidosa';
+export type AvisoSadt = 'nao_e_consulta' | 'senha_duvidosa' | 'data_duvidosa';
 
 export function avisosSadt(entrada: {
-  codigo: string;
+  eConsulta: boolean;
   senha: string;
   confiancaSenha: number;
   confiancaData: number;
 }): AvisoSadt[] {
   const avisos: AvisoSadt[] = [];
-  if (entrada.codigo.trim() !== CODIGO_CONSULTA) avisos.push('codigo_fora_do_escopo');
+  if (!entrada.eConsulta) avisos.push('nao_e_consulta');
   if (!senhaPareceValida(entrada.senha) || !(entrada.confiancaSenha >= CONFIANCA_ALTA)) avisos.push('senha_duvidosa');
   if (!(entrada.confiancaData >= CONFIANCA_ALTA)) avisos.push('data_duvidosa');
   return avisos;

@@ -62,13 +62,13 @@ describe('senhaPareceValida', () => {
 });
 
 describe('avisosSadt', () => {
-  const ok = { codigo: '98250159', senha: '10022159716', confiancaSenha: 0.99, confiancaData: 0.99 };
+  const ok = { eConsulta: true, senha: '10022159716', confiancaSenha: 0.99, confiancaData: 0.99 };
 
   it('não avisa nada quando é consulta e tudo veio com confiança alta', () => {
     expect(avisosSadt(ok)).toEqual([]);
   });
-  it('avisa código fora do escopo', () => {
-    expect(avisosSadt({ ...ok, codigo: '40901300' })).toEqual(['codigo_fora_do_escopo']);
+  it('avisa quando não é consulta', () => {
+    expect(avisosSadt({ ...ok, eConsulta: false })).toEqual(['nao_e_consulta']);
   });
   it('avisa senha com confiança baixa', () => {
     expect(avisosSadt({ ...ok, confiancaSenha: 0.8 })).toEqual(['senha_duvidosa']);

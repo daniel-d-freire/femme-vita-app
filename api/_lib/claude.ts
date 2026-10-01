@@ -71,7 +71,7 @@ REGRAS IMPORTANTES:
 - Se a imagem não for nenhum dos três tipos reconhecidos, defina error="not_recognized".
 - A "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)" de consulta ou exame ambulatorial (campo "32-Tipo de Atendimento" 04 ou 23, campo "91-Regime de atendimento" 01) NÃO é guia de internação: defina document_type=null e error="not_recognized". Essa guia se digitaliza pelo modo SADT do app.
 - Se houver claramente mais de um documento diferente fotografado na mesma imagem, defina error="multiple_documents".
-- Quando definir error, ainda devolva patient_name e document_type com os melhores valores possíveis, mas com confidence baixa.
+- Quando definir error, ainda devolva patient_name e document_type com os melhores valores possíveis, mas com confidence baixa, exceto quando uma regra acima mandar document_type=null.
 
 Responda APENAS em JSON válido, sem markdown, sem texto antes ou depois, sem comentários. Schema:
 

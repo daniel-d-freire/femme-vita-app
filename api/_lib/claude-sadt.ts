@@ -9,6 +9,7 @@ export const SadtResultSchema = z.object({
   senha: z.string(),
   carteira: z.string(),
   codigo_procedimento: z.string(),
+  e_consulta: z.boolean(),
   confidence_name: z.number().min(0).max(1),
   confidence_data: z.number().min(0).max(1),
   confidence_senha: z.number().min(0).max(1),
@@ -22,14 +23,15 @@ export const SADT_PROMPT = `Você lê a "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇ
 
 Você recebe uma ou mais imagens do MESMO documento. Extraia:
 
-1. "e_guia_sadt": true somente se o título for "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)". Guia de internação, guia de honorários, guia de consulta, descrição cirúrgica ou qualquer outro documento: false.
+1. "e_guia_sadt": true se o título do formulário contiver "SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA" e "SP/SADT" (impresso como "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)"). Guia de internação, guia de honorários, guia de consulta, descrição cirúrgica ou qualquer outro documento: false.
 2. "patient_name": o campo "10-Nome", no bloco "Dados do Beneficiário", exatamente como impresso. NÃO use "14-Nome do Contratado", "15-Nome do Profissional Solicitante" nem "30-Nome do Contratado": esses são a médica ou a empresa dela.
-3. "data_autorizacao": o campo "4-Data da Autorização", no formato DD/MM/AAAA. NÃO use "6-Data de Validade da Senha", "22-Data da Solicitação" nem a data de impressão do rodapé.
-4. "senha": o campo "5-Senha", só os dígitos.
+3. "data_autorizacao": o campo "4-Data da Autorização", no formato DD/MM/AAAA. NÃO use "6-Data de Validade da Senha", "22-Data da Solicitação" nem a data de impressão do rodapé. Os campos 4, 5 e 6 ficam na mesma linha: a 4-Data da Autorização fica à esquerda da 5-Senha, e a 6-Data de Validade fica à direita e é posterior.
+4. "senha": o campo "5-Senha", exatamente como impressa, sem espaços.
 5. "carteira": o campo "8-Número da Carteira", só os dígitos.
 6. "codigo_procedimento": o campo "25-Código do Procedimento ou Item Assistencial", primeira linha, só os dígitos.
-7. Confiança de 0.0 a 1.0 para nome (confidence_name), data (confidence_data) e senha (confidence_senha). BAIXE a confiança se o texto estiver borrado, cortado, coberto por carimbo ou assinatura, ou se algum dígito for ambíguo (0/O, 1/I/7, 5/S, 8/B).
-8. "rotation_to_apply": a orientação REAL dos pixels da imagem.
+7. "e_consulta": true se o procedimento da primeira linha (campos 25 e 26) for uma CONSULTA: descrição começando com "CONSULTA" (ex.: "CONSULTA ELETIVA - GINECOLOGIA") ou código 98250159. Exame, ultrassom, biópsia ou outro procedimento: false. Decida principalmente pela descrição, que é maior e mais legível que o código.
+8. Confiança de 0.0 a 1.0 para nome (confidence_name), data (confidence_data) e senha (confidence_senha). BAIXE a confiança se o texto estiver borrado, cortado, coberto por carimbo ou assinatura, ou se algum dígito for ambíguo (0/O, 1/I/7, 5/S, 8/B).
+9. "rotation_to_apply": a orientação REAL dos pixels da imagem.
 
    AVISO: você lê texto rotacionado sem esforço. Para esta tarefa, RESISTA a esse impulso e reporte a orientação dos pixels, não a orientação corrigida mentalmente.
 
@@ -55,6 +57,7 @@ Responda APENAS em JSON válido, sem markdown, sem texto antes ou depois:
   "senha": "string",
   "carteira": "string",
   "codigo_procedimento": "string",
+  "e_consulta": true,
   "confidence_name": 0.0,
   "confidence_data": 0.0,
   "confidence_senha": 0.0,
