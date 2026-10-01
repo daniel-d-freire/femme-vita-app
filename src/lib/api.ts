@@ -49,6 +49,36 @@ export type AnalyzeResult = {
   elapsedMs: number;
 };
 
+export type Modo = 'geral' | 'sadt';
+
+/** Resposta do /api/analyze no modo SADT (espelha SadtResultSchema do servidor). */
+export type SadtAnalyzeResult = {
+  e_guia_sadt: boolean;
+  patient_name: string;
+  data_autorizacao: string;
+  senha: string;
+  carteira: string;
+  codigo_procedimento: string;
+  /** Decidido pela descrição (campo 26): o código impresso pequeno o Vision lê errado. */
+  e_consulta: boolean;
+  confidence_name: number;
+  confidence_data: number;
+  confidence_senha: number;
+  error: 'not_recognized' | 'multiple_documents' | null;
+  rotation_to_apply: 0 | 90 | 180 | 270;
+  elapsedMs: number;
+};
+
+/** O que vai para o registro do faturamento (espelha SadtUploadSchema do servidor). */
+export type SadtDados = {
+  paciente: string;
+  nomeNaGuia: string;
+  data: string;
+  senha: string;
+  carteira: string;
+  codigoProcedimento: string;
+};
+
 export type AnalyzeError = {
   error: string;
   message?: string;
@@ -57,14 +87,14 @@ export type AnalyzeError = {
 
 const API_BASE = import.meta.env.DEV ? '' : '';
 
-export async function analyzePages(pages: CapturedPage[]): Promise<AnalyzeResult> {
+async function postAnalyze(pages: CapturedPage[], modo: Modo): Promise<unknown> {
   // O Claude reduz imagens para ~1568px de qualquer forma; mandar a versão
   // grande só deixa a requisição mais lenta.
   const images = await Promise.all(pages.map((p) => downscaleDataUrl(p.dataUrl)));
   const response = await fetch(`${API_BASE}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ images }),
+    body: JSON.stringify({ images, modo }),
   });
 
   if (!response.ok) {
@@ -77,7 +107,15 @@ export async function analyzePages(pages: CapturedPage[]): Promise<AnalyzeResult
     throw new ApiError(response.status, body);
   }
 
-  return (await response.json()) as AnalyzeResult;
+  return response.json();
+}
+
+export async function analyzePages(pages: CapturedPage[]): Promise<AnalyzeResult> {
+  return (await postAnalyze(pages, 'geral')) as AnalyzeResult;
+}
+
+export async function analyzeSadtPages(pages: CapturedPage[]): Promise<SadtAnalyzeResult> {
+  return (await postAnalyze(pages, 'sadt')) as SadtAnalyzeResult;
 }
 
 export class ApiError extends Error {
@@ -112,6 +150,10 @@ export type UploadResponse = {
   folderId: string;
   folderName: string;
   wasPendente: boolean;
+  /** SADT: já havia arquivo com o mesmo nome e o servidor acrescentou _2, _3… */
+  renomeado?: boolean;
+  /** SADT: o PDF foi salvo mas o registro do faturamento não. */
+  registroFalhou?: boolean;
   sizeKb: number;
   timing: { pdfMs: number; uploadMs: number; totalMs: number };
 };
@@ -123,7 +165,8 @@ export type UploadTarget =
 export async function uploadDocument(
   pages: CapturedPage[],
   fileName: string,
-  target: UploadTarget
+  target: UploadTarget,
+  sadt?: SadtDados
 ): Promise<UploadResponse> {
   const response = await fetch('/api/upload', {
     method: 'POST',
@@ -133,6 +176,7 @@ export async function uploadDocument(
       images: pages.map((p) => p.dataUrl),
       fileName,
       target,
+      sadt,
     }),
   });
   if (!response.ok) {
