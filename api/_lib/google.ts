@@ -313,3 +313,54 @@ export async function downloadFileText(accessToken: string, fileId: string): Pro
   }
   return response.text();
 }
+
+/** Todas as subpastas com esse nome, da mais antiga para a mais nova (o Drive aceita nomes repetidos). */
+export async function findSubfoldersByName(accessToken: string, parentId: string, name: string): Promise<DriveFolder[]> {
+  const safe = name.replace(/'/g, "\\'");
+  const params = new URLSearchParams({
+    q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id,name,parents)',
+    orderBy: 'createdTime',
+    pageSize: '20',
+  });
+  const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Falha ao buscar subpastas '${name}': ${response.status}`);
+  }
+  const data = (await response.json()) as { files: DriveFolder[] };
+  return data.files;
+}
+
+/** Arquivos de qualquer pasta cujo nome começa com `prefixo` (a busca do Drive é por prefixo de termo). */
+export async function findFilesByNamePrefix(
+  accessToken: string,
+  prefixo: string,
+  mimeType: string
+): Promise<{ id: string; name: string; webViewLink?: string }[]> {
+  const safe = prefixo.replace(/'/g, "\\'");
+  const arquivos: { id: string; name: string; webViewLink?: string }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: `name contains '${safe}' and mimeType='${mimeType}' and trashed=false`,
+      fields: 'nextPageToken,files(id,name,webViewLink)',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      throw new Error(`Falha ao buscar arquivos '${prefixo}': ${response.status}`);
+    }
+    const data = (await response.json()) as {
+      files: { id: string; name: string; webViewLink?: string }[];
+      nextPageToken?: string;
+    };
+    arquivos.push(...data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return arquivos;
+}
