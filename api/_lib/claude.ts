@@ -69,7 +69,7 @@ REGRAS IMPORTANTES:
 - Na Guia de Honorários, o nome da paciente está no campo "Nome" dentro do bloco "Dados do Beneficiário" — NÃO confunda com "Nome do Contratado" (que é a profissional/empresa executante).
 - Procure os campos "Nome do Beneficiário", "Paciente", "Nome do Paciente", ou similar, conforme o documento.
 - Se a imagem não for nenhum dos três tipos reconhecidos, defina error="not_recognized".
-- A "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)" de consulta ou exame ambulatorial (campo "32-Tipo de Atendimento" 04 ou 23, campo "91-Regime de atendimento" 01) NÃO é guia de internação: defina document_type=null e error="not_recognized". Essa guia se digitaliza pelo modo SADT do app.
+- A "GUIA DE SERVIÇO PROFISSIONAL / SERVIÇO AUXILIAR DE DIAGNÓSTICO E TERAPIA (SP/SADT)" cuja descrição do procedimento (campo 26) começa com "CONSULTA", ou que é de exame ambulatorial (campo 32 "04" ou "23", campo 91 "01"), NÃO é guia de internação: defina document_type=null e error="not_recognized". Essa guia se digitaliza pelo modo SADT do app.
 - Se houver claramente mais de um documento diferente fotografado na mesma imagem, defina error="multiple_documents".
 - Quando definir error, ainda devolva patient_name e document_type com os melhores valores possíveis, mas com confidence baixa, exceto quando uma regra acima mandar document_type=null.
 

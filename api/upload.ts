@@ -2,15 +2,18 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { readSession, writeSession } from './_lib/session.js';
 import {
+  downloadFileText,
   ensureFreshAccessToken,
   findApoloFolder,
   findOrCreateSubfolder,
   listFileNamesInFolder,
+  listFilesInFolder,
   uploadFileToDrive,
 } from './_lib/google.js';
 import { buildPdfFromDataUrls } from './_lib/pdf.js';
 import {
   SadtUploadSchema,
+  decidirGravacaoDoRegistro,
   montarRegistro,
   nomeCombinaComData,
   nomeDoRegistro,
@@ -31,12 +34,13 @@ export const config = {
   maxDuration: 60,
 };
 
-const RequestBodySchema = z.object({
+export const RequestBodySchema = z.object({
   images: z.array(z.string().startsWith('data:image/')).min(1).max(10),
   fileName: z.string().min(3).max(200),
   /** Either a known folder id (matched patient) or a name for `_Pendentes/<Name>`. */
   target: z.union([
-    z.object({ kind: z.literal('folderId'), folderId: z.string() }),
+    // Ids do Drive são só [A-Za-z0-9_-]; o valor entra numa consulta `q` do Drive, então nada além disso passa.
+    z.object({ kind: z.literal('folderId'), folderId: z.string().regex(/^[A-Za-z0-9_-]{10,}$/) }),
     z.object({ kind: z.literal('pendente'), patientName: z.string().min(1) }),
   ]),
   /** Presente só no modo SADT: grava também o registro em Apolo/_SADT/<AAAA.MM>/. */
@@ -44,13 +48,30 @@ const RequestBodySchema = z.object({
 });
 
 /**
- * Registro da guia SADT para o robô de faturamento (spec, seção 9). Idempotente:
- * se uma tentativa anterior gravou e só a resposta se perdeu, não grava de novo
- * (dois registros com o mesmo nome confundiriam a chave do livro do robô).
+ * Registro da guia SADT para o robô de faturamento (spec, seção 9). Idempotente de verdade:
+ * se já existe um registro com o nome, ele só vale como "tentativa anterior que gravou" quando
+ * aponta para este mesmo PDF (`pdf.id`). Um registro de outro PDF, ou ilegível, é conflito:
+ * dois registros com o mesmo nome confundiriam a chave do livro do robô. Lançar faz o
+ * `tentarAte` esgotar e a resposta sair com `registroFalhou: true`, que é o desejado.
  */
 async function gravarRegistro(accessToken: string, pastaDoMesId: string, registro: RegistroSadt): Promise<void> {
   const nome = nomeDoRegistro(registro.pdf.nome);
-  if ((await listFileNamesInFolder(accessToken, pastaDoMesId)).includes(nome)) return;
+  const existente = (await listFilesInFolder(accessToken, pastaDoMesId)).find(
+    (f) => f.name.toLowerCase() === nome.toLowerCase(),
+  );
+  if (existente) {
+    // Falha ao baixar propaga: a próxima tentativa pode dar certo.
+    const texto = await downloadFileText(accessToken, existente.id);
+    let conteudo: unknown;
+    try {
+      // "null" é JSON válido, mas não é registro: vira undefined (conflito), nunca "não existe".
+      conteudo = JSON.parse(texto) ?? undefined;
+    } catch {
+      conteudo = undefined; // ilegível
+    }
+    if (decidirGravacaoDoRegistro(conteudo, registro.pdf.id) === 'ja_gravado') return;
+    throw new Error(`já existe outro registro com o nome ${nome}`);
+  }
   const bytes = new TextEncoder().encode(JSON.stringify(registro, null, 2));
   await uploadFileToDrive(accessToken, pastaDoMesId, nome, 'application/json', bytes);
 }

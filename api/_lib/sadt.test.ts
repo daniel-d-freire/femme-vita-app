@@ -7,6 +7,7 @@ import {
   nomeDoRegistro,
   nomePdfDoRegistro,
   nomeSadtValido,
+  decidirGravacaoDoRegistro,
   nomeSemColisao,
   pastaDoMes,
   tentarAte,
@@ -143,6 +144,36 @@ describe('montarRegistro', () => {
       digitalizadoEm: '2026-09-30T17:02:11.000Z',
       digitalizadoPor: 'recepcao@exemplo.com',
     });
+  });
+});
+
+describe('decidirGravacaoDoRegistro', () => {
+  const PDF_ID = 'drive-id-1';
+
+  it('grava quando não existe registro com o nome', () => {
+    expect(decidirGravacaoDoRegistro(null, PDF_ID)).toBe('gravar');
+  });
+  it('ja_gravado quando o registro existente aponta para o mesmo PDF (tentativa anterior)', () => {
+    expect(decidirGravacaoDoRegistro({ versao: 1, pdf: { id: PDF_ID, nome: 'x.pdf', pendente: false } }, PDF_ID)).toBe(
+      'ja_gravado',
+    );
+  });
+  it('conflito quando o registro existente aponta para outro PDF', () => {
+    expect(decidirGravacaoDoRegistro({ versao: 1, pdf: { id: 'outro-id', nome: 'x.pdf' } }, PDF_ID)).toBe('conflito');
+  });
+  it('conflito quando o JSON não tem pdf.id', () => {
+    expect(decidirGravacaoDoRegistro({ versao: 1 }, PDF_ID)).toBe('conflito');
+    expect(decidirGravacaoDoRegistro({ pdf: {} }, PDF_ID)).toBe('conflito');
+    expect(decidirGravacaoDoRegistro({ pdf: null }, PDF_ID)).toBe('conflito');
+  });
+  it('conflito quando pdf.id não é string', () => {
+    expect(decidirGravacaoDoRegistro({ pdf: { id: 123 } }, PDF_ID)).toBe('conflito');
+  });
+  it('conflito quando o conteúdo não é um objeto', () => {
+    expect(decidirGravacaoDoRegistro('texto', PDF_ID)).toBe('conflito');
+    expect(decidirGravacaoDoRegistro(42, PDF_ID)).toBe('conflito');
+    expect(decidirGravacaoDoRegistro([], PDF_ID)).toBe('conflito');
+    expect(decidirGravacaoDoRegistro(undefined, PDF_ID)).toBe('conflito');
   });
 });
 

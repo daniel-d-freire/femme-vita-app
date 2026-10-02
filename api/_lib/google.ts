@@ -173,6 +173,8 @@ export async function findSubfolderByName(
   const params = new URLSearchParams({
     q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id,name,parents)',
+    // Se existirem pastas gêmeas, toda requisição escolhe a mesma: a mais antiga.
+    orderBy: 'createdTime',
     pageSize: '1',
   });
   const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
@@ -192,7 +194,13 @@ export async function findOrCreateSubfolder(
 ): Promise<DriveFolder> {
   const existing = await findSubfolderByName(accessToken, parentId, name);
   if (existing) return existing;
-  return createSubfolder(accessToken, parentId, name);
+  const created = await createSubfolder(accessToken, parentId, name);
+  // Corrida no primeiro save (por exemplo, da pasta do mês em _SADT): duas requisições
+  // chegam juntas, as duas não acham a pasta e as duas criam, e o Drive aceita nomes
+  // repetidos. Depois de criar, buscamos de novo e ficamos com a mais antiga, que é a
+  // mesma que qualquer outra requisição vai escolher. Nada é apagado: a pasta gêmea
+  // fica vazia e a pessoa remove se quiser.
+  return (await findSubfolderByName(accessToken, parentId, name)) ?? created;
 }
 
 export async function uploadFileToDrive(
@@ -263,14 +271,17 @@ export async function listSubfolders(
   return all;
 }
 
-/** Nomes dos arquivos (não pastas) direto dentro de `parentId`. Usado para evitar nome repetido. */
-export async function listFileNamesInFolder(accessToken: string, parentId: string): Promise<string[]> {
-  const nomes: string[] = [];
+/** Arquivos (não pastas) direto dentro de `parentId`, com id e nome. */
+export async function listFilesInFolder(
+  accessToken: string,
+  parentId: string
+): Promise<{ id: string; name: string }[]> {
+  const arquivos: { id: string; name: string }[] = [];
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
       q: `'${parentId}' in parents and mimeType!='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'nextPageToken,files(name)',
+      fields: 'nextPageToken,files(id,name)',
       pageSize: '1000',
     });
     if (pageToken) params.set('pageToken', pageToken);
@@ -280,9 +291,25 @@ export async function listFileNamesInFolder(accessToken: string, parentId: strin
     if (!response.ok) {
       throw new Error(`Falha ao listar arquivos da pasta: ${response.status}`);
     }
-    const data = (await response.json()) as { files: { name: string }[]; nextPageToken?: string };
-    nomes.push(...data.files.map((f) => f.name));
+    const data = (await response.json()) as { files: { id: string; name: string }[]; nextPageToken?: string };
+    arquivos.push(...data.files);
     pageToken = data.nextPageToken;
   } while (pageToken);
-  return nomes;
+  return arquivos;
+}
+
+/** Nomes dos arquivos (não pastas) direto dentro de `parentId`. Usado para evitar nome repetido. */
+export async function listFileNamesInFolder(accessToken: string, parentId: string): Promise<string[]> {
+  return (await listFilesInFolder(accessToken, parentId)).map((f) => f.name);
+}
+
+/** Conteúdo de um arquivo do Drive como texto (alt=media). */
+export async function downloadFileText(accessToken: string, fileId: string): Promise<string> {
+  const response = await fetch(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Falha ao baixar arquivo ${fileId}: ${response.status}`);
+  }
+  return response.text();
 }

@@ -92,6 +92,23 @@ export function montarRegistro(entrada: {
   };
 }
 
+/**
+ * O que fazer quando já há (ou não) um arquivo com o nome do registro em _SADT/<mês>.
+ * `existente` é o JSON já parseado, ou null se não há arquivo.
+ * - gravar: não há registro.
+ * - ja_gravado: o registro existente aponta para este mesmo PDF (`pdf.id`); uma tentativa
+ *   anterior gravou e só a resposta se perdeu.
+ * - conflito: há um registro de outro PDF, ou ilegível. Gravar de novo duplicaria a chave
+ *   do livro do robô, e sobrescrever apagaria o registro alheio; quem decide é a pessoa.
+ */
+export function decidirGravacaoDoRegistro(existente: unknown, pdfId: string): 'gravar' | 'ja_gravado' | 'conflito' {
+  if (existente === null) return 'gravar';
+  if (typeof existente !== 'object' || Array.isArray(existente)) return 'conflito';
+  const pdf = (existente as { pdf?: unknown }).pdf;
+  if (typeof pdf !== 'object' || pdf === null) return 'conflito';
+  return (pdf as { id?: unknown }).id === pdfId ? 'ja_gravado' : 'conflito';
+}
+
 /** Roda `fn` até `tentativas` vezes, com pausa entre elas. Devolve true se alguma deu certo. */
 export async function tentarAte(tentativas: number, pausaMs: number, fn: () => Promise<void>): Promise<boolean> {
   for (let i = 1; i <= tentativas; i++) {

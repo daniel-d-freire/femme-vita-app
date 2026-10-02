@@ -29,7 +29,7 @@ Você recebe uma ou mais imagens do MESMO documento. Extraia:
 4. "senha": o campo "5-Senha", exatamente como impressa, sem espaços.
 5. "carteira": o campo "8-Número da Carteira", só os dígitos.
 6. "codigo_procedimento": o campo "25-Código do Procedimento ou Item Assistencial", primeira linha, só os dígitos.
-7. "e_consulta": true se o procedimento da primeira linha (campos 25 e 26) for uma CONSULTA: descrição começando com "CONSULTA" (ex.: "CONSULTA ELETIVA - GINECOLOGIA") ou código 98250159. Exame, ultrassom, biópsia ou outro procedimento: false. Decida principalmente pela descrição, que é maior e mais legível que o código.
+7. "e_consulta": true se o procedimento da primeira linha (campos 25 e 26) for uma CONSULTA: descrição começando com "CONSULTA" (ex.: "CONSULTA ELETIVA - GINECOLOGIA") ou código 98250159. Exame, ultrassom, biópsia ou outro procedimento: false. Decida principalmente pela descrição, que é maior e mais legível que o código. Se descrição e código discordarem, vale a descrição; se a descrição estiver ilegível, use o código.
 8. Confiança de 0.0 a 1.0 para nome (confidence_name), data (confidence_data) e senha (confidence_senha). BAIXE a confiança se o texto estiver borrado, cortado, coberto por carimbo ou assinatura, ou se algum dígito for ambíguo (0/O, 1/I/7, 5/S, 8/B).
 9. "rotation_to_apply": a orientação REAL dos pixels da imagem.
 
@@ -51,13 +51,13 @@ REGRAS:
 Responda APENAS em JSON válido, sem markdown, sem texto antes ou depois:
 
 {
-  "e_guia_sadt": true,
+  "e_guia_sadt": true | false,
   "patient_name": "string",
   "data_autorizacao": "DD/MM/AAAA",
   "senha": "string",
   "carteira": "string",
   "codigo_procedimento": "string",
-  "e_consulta": true,
+  "e_consulta": true | false,
   "confidence_name": 0.0,
   "confidence_data": 0.0,
   "confidence_senha": 0.0,
