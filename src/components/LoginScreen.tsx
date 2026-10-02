@@ -1,3 +1,4 @@
+import { guardarDestino } from '../lib/destino';
 import { Logo } from './Logo';
 
 type Props = {
@@ -24,6 +25,7 @@ export function LoginScreen({ error }: Props) {
 
         <a
           href="/api/auth/google"
+          onClick={() => guardarDestino(window.location.search)}
           className="mt-10 inline-flex h-14 items-center justify-center gap-3 rounded-2xl bg-navy px-7 font-mono text-[11px] tracking-wider uppercase text-bone shadow-lifted transition active:scale-[0.98]"
         >
           <GoogleMark />

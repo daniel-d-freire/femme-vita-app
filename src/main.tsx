@@ -2,6 +2,9 @@ import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { restaurarDestino } from './lib/destino'
+
+restaurarDestino()
 
 // ?demo=<tela> mostra telas com dados fictícios. Só existe em `npm run dev`.
 const demo = import.meta.env.DEV ? new URLSearchParams(window.location.search).get('demo') : null
