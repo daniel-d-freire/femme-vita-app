@@ -19,7 +19,7 @@ const COPY_BY_PHASE = {
 };
 
 const SUBTITULO_SADT =
-  'A IA está lendo paciente, data e senha da guia SADT. Costuma levar 3 a 6 segundos.';
+  'A IA está lendo paciente, data e senha da guia SADT. Costuma levar 3 a 6 segundos, e o dobro se a guia estiver deitada.';
 
 type Props = {
   pageCount: number;

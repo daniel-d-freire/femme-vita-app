@@ -292,7 +292,7 @@ function ToastSalvo({ nome }: { nome: string }) {
   return (
     <div
       role="status"
-      className="absolute inset-x-5 top-2 z-30 rounded-2xl border border-success/40 bg-success/90 px-4 py-3 text-bone shadow-lifted animate-slide-down"
+      className="pointer-events-none absolute inset-x-5 top-2 z-30 rounded-2xl border border-success/40 bg-success/90 px-4 py-3 text-bone shadow-lifted animate-slide-down"
     >
       <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-bone/80">Salvo na pasta</p>
       <p className="mt-0.5 truncate font-mono text-[12px]">{nome}</p>

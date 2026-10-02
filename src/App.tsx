@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CameraScreen } from './components/CameraScreen';
 import { CropScreen } from './components/CropScreen';
 import { PagesStack } from './components/PagesStack';
@@ -58,6 +58,15 @@ export default function App() {
   const tela = useMemo(() => new URLSearchParams(window.location.search).get('tela'), []);
   const [salvasNaSessao, setSalvasNaSessao] = useState(0);
   const [ultimoSalvo, setUltimoSalvo] = useState<{ nome: string; n: number } | null>(null);
+  // Argumentos da última chamada de performSave, para "Tentar novamente" refazer o
+  // salvamento com o que a recepção já corrigiu, sem voltar à tela de confirmação.
+  const ultimoSalvamento = useRef<{
+    pages: CapturedPage[];
+    target: UploadTarget;
+    fileName: string;
+    rotation: AnalyzeResult['rotation_to_apply'];
+    sadt?: SadtDados;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +98,8 @@ export default function App() {
   }, []);
 
   const handleCapture = useCallback((page: CapturedPage) => {
+    // Uma nova foto começa: o aviso "Salvo na pasta" da guia anterior não volta mais.
+    setUltimoSalvo(null);
     // Route captures through the crop step.
     setScreen({ kind: 'crop', pending: page });
   }, []);
@@ -120,6 +131,7 @@ export default function App() {
       rotation: AnalyzeResult['rotation_to_apply'],
       sadt?: SadtDados
     ) => {
+      ultimoSalvamento.current = { pages: currentPages, target, fileName, rotation, sadt };
       setScreen({ kind: 'processing', phase: 'saving' });
       try {
         // Log pra debug: confirma o que Claude reportou.
@@ -139,6 +151,7 @@ export default function App() {
           `[femme-vita] upload ${finalPages.length} pág., ${formatBytes(payloadBytes(finalPages.map((p) => p.dataUrl)))}`
         );
         const uploaded = await uploadDocument(finalPages, fileName, target, sadt);
+        ultimoSalvamento.current = null; // salvou: solta as páginas da memória
         if (sadt) {
           setSalvasNaSessao((n) => n + 1);
           // Sem aviso, volta direto para a câmera: a recepção segue para a próxima guia.
@@ -152,6 +165,7 @@ export default function App() {
         setScreen({ kind: 'saved', result: uploaded });
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
+          ultimoSalvamento.current = null;
           setAuth({ kind: 'unauthenticated', error: 'Sua sessão expirou. Faça login novamente.' });
           setPages([]);
           setScreen({ kind: 'camera' });
@@ -188,10 +202,15 @@ export default function App() {
               height: p.width,
             }))
           );
-          const segunda = await analyzeSadtPages(giradas);
-          if (segunda.e_guia_sadt && segunda.error === null) {
-            setPages(giradas);
-            sadtResult = segunda;
+          try {
+            const segunda = await analyzeSadtPages(giradas);
+            if (segunda.e_guia_sadt && segunda.error === null) {
+              setPages(giradas);
+              sadtResult = segunda;
+            }
+          } catch {
+            // A releitura é um reforço: se falhar (rede ou 5xx), vale a primeira leitura.
+            console.warn('[femme-vita] releitura girada falhou; usando a primeira leitura');
           }
         }
         setScreen({ kind: 'sadt-result', result: sadtResult });
@@ -244,7 +263,19 @@ export default function App() {
     [pages, performSave]
   );
 
+  // "Tentar novamente" depois de erro ao salvar: refaz o salvamento com os mesmos
+  // argumentos. Sem eles, volta para a revisão, como antes.
+  const handleRetrySave = useCallback(() => {
+    const ultimo = ultimoSalvamento.current;
+    if (!ultimo) {
+      setScreen({ kind: 'review' });
+      return;
+    }
+    void performSave(ultimo.pages, ultimo.target, ultimo.fileName, ultimo.rotation, ultimo.sadt);
+  }, [performSave]);
+
   const handleRestart = useCallback(() => {
+    setUltimoSalvo(null);
     setPages([]);
     setScreen({ kind: 'camera' });
   }, []);
@@ -305,7 +336,7 @@ export default function App() {
       return (
         <ErrorScreen
           message={screen.message}
-          onRetry={screen.recoverable === 'analyze' ? handleSubmit : () => setScreen({ kind: 'review' })}
+          onRetry={screen.recoverable === 'analyze' ? handleSubmit : handleRetrySave}
           onBack={() => setScreen({ kind: 'review' })}
         />
       );
