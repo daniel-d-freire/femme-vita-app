@@ -40,7 +40,7 @@ export const RequestBodySchema = z.object({
   /** Either a known folder id (matched patient) or a name for `_Pendentes/<Name>`. */
   target: z.union([
     // Ids do Drive são só [A-Za-z0-9_-]; o valor entra numa consulta `q` do Drive, então nada além disso passa.
-    z.object({ kind: z.literal('folderId'), folderId: z.string().regex(/^[A-Za-z0-9_-]{10,}$/) }),
+    z.object({ kind: z.literal('folderId'), folderId: z.string().regex(/^[A-Za-z0-9_-]{10,100}$/) }),
     z.object({ kind: z.literal('pendente'), patientName: z.string().min(1) }),
   ]),
   /** Presente só no modo SADT: grava também o registro em Apolo/_SADT/<AAAA.MM>/. */

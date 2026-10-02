@@ -62,7 +62,7 @@ Responda APENAS em JSON válido, sem markdown, sem texto antes ou depois:
   "confidence_data": 0.0,
   "confidence_senha": 0.0,
   "error": null,
-  "rotation_to_apply": 0
+  "rotation_to_apply": 0 | 90 | 180 | 270
 }`;
 
 /** Valida a resposta e garante que "não é SADT" sempre vem com erro. */

@@ -19,6 +19,10 @@ describe('RequestBodySchema: folderId', () => {
   it('recusa id curto demais', () => {
     expect(comFolderId('abc').success).toBe(false);
   });
+  it('aceita até 100 caracteres e recusa 101', () => {
+    expect(comFolderId('a'.repeat(100)).success).toBe(true);
+    expect(comFolderId('a'.repeat(101)).success).toBe(false);
+  });
   it('recusa id vazio', () => {
     expect(comFolderId('').success).toBe(false);
   });

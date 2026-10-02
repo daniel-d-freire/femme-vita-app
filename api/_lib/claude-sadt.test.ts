@@ -1,7 +1,7 @@
 // api/_lib/claude-sadt.test.ts
 import { describe, expect, it } from 'vitest';
 import { extrairJson } from './claude.js';
-import { validarRespostaSadt } from './claude-sadt.js';
+import { SADT_PROMPT, validarRespostaSadt } from './claude-sadt.js';
 
 const RESPOSTA = {
   e_guia_sadt: true,
@@ -24,6 +24,12 @@ describe('extrairJson', () => {
   });
   it('explica quando não há JSON', () => {
     expect(() => extrairJson('sem nada')).toThrow(/não contém JSON/);
+  });
+});
+
+describe('SADT_PROMPT', () => {
+  it('o molde do JSON não sugere uma rotação, lista as quatro', () => {
+    expect(SADT_PROMPT).toContain('"rotation_to_apply": 0 | 90 | 180 | 270');
   });
 });
 

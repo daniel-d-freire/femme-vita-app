@@ -1,3 +1,4 @@
+import { escaparConsultaDrive } from './drive-query.js';
 import type { SessionData } from './session.js';
 
 const OAUTH_AUTHZ_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -169,7 +170,7 @@ export async function findSubfolderByName(
   parentId: string,
   name: string
 ): Promise<DriveFolder | null> {
-  const safe = name.replace(/'/g, "\\'");
+  const safe = escaparConsultaDrive(name);
   const params = new URLSearchParams({
     q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id,name,parents)',
@@ -316,7 +317,7 @@ export async function downloadFileText(accessToken: string, fileId: string): Pro
 
 /** Todas as subpastas com esse nome, da mais antiga para a mais nova (o Drive aceita nomes repetidos). */
 export async function findSubfoldersByName(accessToken: string, parentId: string, name: string): Promise<DriveFolder[]> {
-  const safe = name.replace(/'/g, "\\'");
+  const safe = escaparConsultaDrive(name);
   const params = new URLSearchParams({
     q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id,name,parents)',
@@ -339,7 +340,7 @@ export async function findFilesByNamePrefix(
   prefixo: string,
   mimeType: string
 ): Promise<{ id: string; name: string; webViewLink?: string }[]> {
-  const safe = prefixo.replace(/'/g, "\\'");
+  const safe = escaparConsultaDrive(prefixo);
   const arquivos: { id: string; name: string; webViewLink?: string }[] = [];
   let pageToken: string | undefined;
   do {
