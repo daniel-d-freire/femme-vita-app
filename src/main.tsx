@@ -5,13 +5,12 @@ import App from './App.tsx'
 
 // ?demo=<tela> mostra telas com dados fictícios. Só existe em `npm run dev`.
 const demo = import.meta.env.DEV ? new URLSearchParams(window.location.search).get('demo') : null
-// main.tsx é ponto de entrada (sem fast refresh): a regra não se aplica aqui.
-// eslint-disable-next-line react-refresh/only-export-components
-const Demo = lazy(() => import('./dev/Demo.tsx'))
+// Guardado por DEV para o Vite eliminar o import: produção não leva o chunk da vitrine.
+const Demo = import.meta.env.DEV ? lazy(() => import('./dev/Demo.tsx')) : null
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {demo !== null ? (
+    {demo !== null && Demo ? (
       <Suspense fallback={null}>
         <Demo nome={demo} />
       </Suspense>
