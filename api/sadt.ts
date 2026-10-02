@@ -65,7 +65,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const [registros, livro, pdfs] = await Promise.all([
       mapearComLimite(arquivosDeRegistro, 8, async (a) => ({ nome: a.name, conteudo: await baixarJson(accessToken, a) })),
-      arquivoDoLivro ? baixarJson(accessToken, arquivoDoLivro) : Promise.resolve(null),
+      // Livro que existe mas não abre não pode virar "sem livro" (tudo como "falta
+      // faturar", R$ 0): um objeto inválido faz montarPainel mostrar o aviso do livro.
+      arquivoDoLivro
+        ? baixarJson(accessToken, arquivoDoLivro).then((livro) => livro ?? { livroIlegivel: true })
+        : Promise.resolve(null),
       findFilesByNamePrefix(accessToken, 'Guia_SADT_', 'application/pdf'),
     ]);
 
