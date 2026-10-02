@@ -18,14 +18,19 @@ const COPY_BY_PHASE = {
   },
 };
 
+const SUBTITULO_SADT =
+  'A IA está lendo paciente, data e senha da guia SADT. Costuma levar 3 a 6 segundos.';
+
 type Props = {
   pageCount: number;
   phase?: 'analyzing' | 'saving';
+  modo?: 'geral' | 'sadt';
 };
 
-export function ProcessingScreen({ pageCount, phase = 'analyzing' }: Props) {
+export function ProcessingScreen({ pageCount, phase = 'analyzing', modo = 'geral' }: Props) {
   const copy = COPY_BY_PHASE[phase];
   const steps = STEPS_BY_PHASE[phase];
+  const subtitle = modo === 'sadt' && phase === 'analyzing' ? SUBTITULO_SADT : copy.subtitle;
 
   return (
     <div className="flex min-h-[100svh] flex-col bg-bone">
@@ -49,7 +54,7 @@ export function ProcessingScreen({ pageCount, phase = 'analyzing' }: Props) {
         <h1 className="mt-2 max-w-xs font-serif text-4xl italic leading-tight text-navy">
           {copy.title}
         </h1>
-        <p className="mt-3 max-w-xs text-sm leading-relaxed text-navy/60">{copy.subtitle}</p>
+        <p className="mt-3 max-w-xs text-sm leading-relaxed text-navy/60">{subtitle}</p>
 
         <ul className="mt-10 flex flex-col gap-2.5">
           {steps.map((step, idx) => (

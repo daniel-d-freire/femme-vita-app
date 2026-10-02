@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Logo } from './Logo';
 import { loadPhotoFile, type CapturedPage } from '../lib/camera';
-import type { AuthUser } from '../lib/api';
+import type { AuthUser, Modo } from '../lib/api';
 
 type Props = {
   pages: CapturedPage[];
@@ -11,6 +11,11 @@ type Props = {
   folderCount: number | null;
   foldersError?: string;
   onLogout: () => void;
+  modo?: Modo;
+  /** Guias SADT salvas desde que o app abriu. */
+  salvasNaSessao?: number;
+  /** Último arquivo SADT salvo sem aviso; `n` muda a cada salvamento e reinicia o aviso. */
+  ultimoSalvo?: { nome: string; n: number } | null;
 };
 
 type CaptureState =
@@ -20,7 +25,18 @@ type CaptureState =
 
 const TIPS = ['luz uniforme, sem flash', 'folha inteira dentro do quadro', 'sem sombra da mão'];
 
-export function CameraScreen({ pages, onCapture, onReview, user, folderCount, foldersError, onLogout }: Props) {
+export function CameraScreen({
+  pages,
+  onCapture,
+  onReview,
+  user,
+  folderCount,
+  foldersError,
+  onLogout,
+  modo = 'geral',
+  salvasNaSessao = 0,
+  ultimoSalvo = null,
+}: Props) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<CaptureState>({ kind: 'idle' });
@@ -79,7 +95,18 @@ export function CameraScreen({ pages, onCapture, onReview, user, folderCount, fo
 
       {/* Header */}
       <header className="relative z-20 flex items-start justify-between px-5 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
-        <Logo variant="light" size="sm" />
+        <div className="flex flex-col items-start gap-2">
+          <Logo variant="light" size="sm" />
+          {modo === 'sadt' && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber/40 bg-amber/15 px-2.5 py-1 font-mono text-[10px] tracking-wider uppercase text-amber">
+              <span className="h-1 w-1 rounded-full bg-current" />
+              Guias SADT
+              {salvasNaSessao > 0 && (
+                <span className="text-bone/70">· {salvasNaSessao} {salvasNaSessao === 1 ? 'salva' : 'salvas'}</span>
+              )}
+            </span>
+          )}
+        </div>
         <div className="flex flex-col items-end gap-1">
           <button
             onClick={() => setShowMenu((v) => !v)}
@@ -128,6 +155,7 @@ export function CameraScreen({ pages, onCapture, onReview, user, folderCount, fo
 
       {/* Bancada: moldura A4 com orientação */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden px-6">
+        {ultimoSalvo && <ToastSalvo key={ultimoSalvo.n} nome={ultimoSalvo.nome} />}
         <button
           onClick={openCamera}
           disabled={isLoading}
@@ -157,7 +185,9 @@ export function CameraScreen({ pages, onCapture, onReview, user, folderCount, fo
             ) : (
               <>
                 <p className="font-serif text-2xl italic text-bone/90">
-                  {pages.length === 0 ? 'Fotografe a guia' : `Página ${pages.length + 1}`}
+                  {pages.length === 0
+                    ? modo === 'sadt' ? 'Fotografe a guia SADT' : 'Fotografe a guia'
+                    : `Página ${pages.length + 1}`}
                 </p>
                 <ul className="mt-4 space-y-1.5">
                   {TIPS.map((tip) => (
@@ -249,4 +279,23 @@ function Corner({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
     br: 'bottom-0 right-0 border-b-2 border-r-2 rounded-br-md',
   };
   return <span className={`absolute h-7 w-7 border-bone/70 ${map[pos]}`} aria-hidden />;
+}
+
+/** Confirmação curta depois de salvar no modo SADT, para seguir direto para a próxima guia. */
+function ToastSalvo({ nome }: { nome: string }) {
+  const [visivel, setVisivel] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setVisivel(false), 5000);
+    return () => clearTimeout(t);
+  }, []);
+  if (!visivel) return null;
+  return (
+    <div
+      role="status"
+      className="absolute inset-x-5 top-2 z-30 rounded-2xl border border-success/40 bg-success/90 px-4 py-3 text-bone shadow-lifted animate-slide-down"
+    >
+      <p className="font-mono text-[10px] tracking-[0.22em] uppercase text-bone/80">Salvo na pasta</p>
+      <p className="mt-0.5 truncate font-mono text-[12px]">{nome}</p>
+    </div>
+  );
 }

@@ -1,12 +1,13 @@
 import { Logo } from './Logo';
-import type { UploadResponse } from '../lib/api';
+import type { Modo, UploadResponse } from '../lib/api';
 
 type Props = {
   result: UploadResponse;
   onNewDocument: () => void;
+  modo?: Modo;
 };
 
-export function SavedScreen({ result, onNewDocument }: Props) {
+export function SavedScreen({ result, onNewDocument, modo = 'geral' }: Props) {
   const totalSec = (result.timing.totalMs / 1000).toFixed(1);
 
   return (
@@ -67,6 +68,16 @@ export function SavedScreen({ result, onNewDocument }: Props) {
             Você pode mover o arquivo manualmente depois pela pasta certa da paciente no Drive.
           </p>
         )}
+        {result.renomeado && (
+          <p className="mt-4 w-full max-w-sm rounded-2xl border border-amber/40 bg-amber-50 p-4 text-left font-serif text-base italic leading-snug text-navy">
+            Já havia uma guia SADT com esse nome nesta pasta. Salvei com outro nome. Confira se não é a mesma guia fotografada duas vezes.
+          </p>
+        )}
+        {result.registroFalhou && (
+          <p className="mt-4 w-full max-w-sm rounded-2xl border border-danger/40 bg-danger/8 p-4 text-left font-serif text-base italic leading-snug text-navy">
+            O PDF está salvo, mas o registro do faturamento falhou. Avise o Daniel: esta guia não vai aparecer no faturamento SADT.
+          </p>
+        )}
       </div>
 
       <footer className="px-5 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
@@ -74,7 +85,7 @@ export function SavedScreen({ result, onNewDocument }: Props) {
           onClick={onNewDocument}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-navy font-mono text-[11px] tracking-wider uppercase text-bone shadow-lifted transition active:scale-[0.98]"
         >
-          Novo documento <span className="text-amber">→</span>
+          {modo === 'sadt' ? 'Próxima guia' : 'Novo documento'} <span className="text-amber">→</span>
         </button>
       </footer>
     </div>

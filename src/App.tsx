@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CameraScreen } from './components/CameraScreen';
 import { CropScreen } from './components/CropScreen';
 import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { LoginScreen } from './components/LoginScreen';
+import { SadtResultScreen } from './components/SadtResultScreen';
 import { SavedScreen } from './components/SavedScreen';
 import { fitPagesToBudget, formatBytes, payloadBytes, type CapturedPage } from './lib/camera';
 import {
   ApiError,
   analyzePages,
+  analyzeSadtPages,
   fetchAuthState,
   fetchFolders,
   isAutoSaveEligible,
@@ -18,6 +20,9 @@ import {
   type AnalyzeResult,
   type AuthUser,
   type FoldersResponse,
+  type Modo,
+  type SadtAnalyzeResult,
+  type SadtDados,
   type UploadResponse,
   type UploadTarget,
 } from './lib/api';
@@ -30,6 +35,7 @@ type Screen =
   | { kind: 'review' }
   | { kind: 'processing'; phase: 'analyzing' | 'saving' }
   | { kind: 'result'; result: AnalyzeResult }
+  | { kind: 'sadt-result'; result: SadtAnalyzeResult }
   | { kind: 'saved'; result: UploadResponse }
   | { kind: 'error'; message: string; recoverable: 'analyze' | 'save' };
 
@@ -42,6 +48,13 @@ export default function App() {
   const [auth, setAuth] = useState<AuthStatus>({ kind: 'loading' });
   const [screen, setScreen] = useState<Screen>({ kind: 'camera' });
   const [pages, setPages] = useState<CapturedPage[]>([]);
+  // ?modo=sadt vem do card "Guias SADT" do Hub. Fixo durante a sessão.
+  const modo = useMemo<Modo>(
+    () => (new URLSearchParams(window.location.search).get('modo') === 'sadt' ? 'sadt' : 'geral'),
+    []
+  );
+  const [salvasNaSessao, setSalvasNaSessao] = useState(0);
+  const [ultimoSalvo, setUltimoSalvo] = useState<{ nome: string; n: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,7 +114,8 @@ export default function App() {
       currentPages: CapturedPage[],
       target: UploadTarget,
       fileName: string,
-      rotation: AnalyzeResult['rotation_to_apply']
+      rotation: AnalyzeResult['rotation_to_apply'],
+      sadt?: SadtDados
     ) => {
       setScreen({ kind: 'processing', phase: 'saving' });
       try {
@@ -121,7 +135,17 @@ export default function App() {
         console.log(
           `[femme-vita] upload ${finalPages.length} pág., ${formatBytes(payloadBytes(finalPages.map((p) => p.dataUrl)))}`
         );
-        const uploaded = await uploadDocument(finalPages, fileName, target);
+        const uploaded = await uploadDocument(finalPages, fileName, target, sadt);
+        if (sadt) {
+          setSalvasNaSessao((n) => n + 1);
+          // Sem aviso, volta direto para a câmera: a recepção segue para a próxima guia.
+          if (!uploaded.renomeado && !uploaded.registroFalhou) {
+            setUltimoSalvo((prev) => ({ nome: uploaded.fileName, n: (prev?.n ?? 0) + 1 }));
+            setPages([]);
+            setScreen({ kind: 'camera' });
+            return;
+          }
+        }
         setScreen({ kind: 'saved', result: uploaded });
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
@@ -146,6 +170,30 @@ export default function App() {
     if (pages.length === 0 || auth.kind !== 'authenticated') return;
     setScreen({ kind: 'processing', phase: 'analyzing' });
     try {
+      if (modo === 'sadt') {
+        let sadtResult = await analyzeSadtPages(pages);
+        // Guia em paisagem fotografada com o celular em pé chega deitada, e o Vision
+        // lê pior: no teste com a guia real deitada ele errou carteira e data, e em pé
+        // acertou tudo. Quando ele diz que a página está de lado, gira e lê de novo.
+        const giro = sadtResult.rotation_to_apply;
+        if (sadtResult.e_guia_sadt && (giro === 90 || giro === 270)) {
+          const giradas = await Promise.all(
+            pages.map(async (p) => ({
+              ...p,
+              dataUrl: await rotateImageCW(p.dataUrl, giro),
+              width: p.height,
+              height: p.width,
+            }))
+          );
+          const segunda = await analyzeSadtPages(giradas);
+          if (segunda.e_guia_sadt && segunda.error === null) {
+            setPages(giradas);
+            sadtResult = segunda;
+          }
+        }
+        setScreen({ kind: 'sadt-result', result: sadtResult });
+        return;
+      }
       const result = await analyzePages(pages);
       const folders = auth.folders?.folders ?? [];
       const match = result.patient_name ? matchFolder(result.patient_name, folders) : null;
@@ -177,11 +225,18 @@ export default function App() {
             : 'Erro ao analisar.';
       setScreen({ kind: 'error', message, recoverable: 'analyze' });
     }
-  }, [pages, auth, performSave]);
+  }, [pages, auth, performSave, modo]);
 
   const handleManualSave = useCallback(
     (target: UploadTarget, fileName: string, rotation: AnalyzeResult['rotation_to_apply']) => {
       performSave(pages, target, fileName, rotation);
+    },
+    [pages, performSave]
+  );
+
+  const handleSadtSave = useCallback(
+    (target: UploadTarget, fileName: string, rotation: AnalyzeResult['rotation_to_apply'], sadt: SadtDados) => {
+      performSave(pages, target, fileName, rotation, sadt);
     },
     [pages, performSave]
   );
@@ -213,7 +268,7 @@ export default function App() {
       );
 
     case 'processing':
-      return <ProcessingScreen pageCount={pages.length} phase={screen.phase} />;
+      return <ProcessingScreen pageCount={pages.length} phase={screen.phase} modo={modo} />;
 
     case 'result':
       return (
@@ -227,8 +282,20 @@ export default function App() {
         />
       );
 
+    case 'sadt-result':
+      return (
+        <SadtResultScreen
+          result={screen.result}
+          pageCount={pages.length}
+          firstPageDataUrl={pages[0]?.dataUrl ?? ''}
+          folders={auth.folders?.folders ?? []}
+          onSave={handleSadtSave}
+          onBackToReview={() => setScreen({ kind: 'review' })}
+        />
+      );
+
     case 'saved':
-      return <SavedScreen result={screen.result} onNewDocument={handleRestart} />;
+      return <SavedScreen result={screen.result} onNewDocument={handleRestart} modo={modo} />;
 
     case 'error':
       return (
@@ -260,6 +327,9 @@ export default function App() {
           folderCount={auth.folders?.folders.length ?? null}
           foldersError={auth.foldersError}
           onLogout={handleLogout}
+          modo={modo}
+          salvasNaSessao={salvasNaSessao}
+          ultimoSalvo={ultimoSalvo}
         />
       );
   }
