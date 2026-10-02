@@ -584,15 +584,16 @@ git commit -m "feat(painel): montagem pura do painel SADT a partir de registros,
 
 - [ ] **Step 1: Helpers do Drive no fim de `api/_lib/google.ts`**
 
-```ts
-export type DriveArquivo = { id: string; name: string; mimeType: string; webViewLink?: string };
+`listFilesInFolder` (id e nome) e `downloadFileText` já existem, criadas nas correções do modo SADT; não recrie. Acrescente só:
 
-/** Todas as subpastas com esse nome: o Drive aceita nomes repetidos (dois aparelhos criando ao mesmo tempo). */
+```ts
+/** Todas as subpastas com esse nome, da mais antiga para a mais nova (o Drive aceita nomes repetidos). */
 export async function findSubfoldersByName(accessToken: string, parentId: string, name: string): Promise<DriveFolder[]> {
   const safe = name.replace(/'/g, "\\'");
   const params = new URLSearchParams({
     q: `'${parentId}' in parents and name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id,name,parents)',
+    orderBy: 'createdTime',
     pageSize: '20',
   });
   const response = await fetch(`${DRIVE_FILES_URL}?${params}`, {
@@ -605,13 +606,19 @@ export async function findSubfoldersByName(accessToken: string, parentId: string
   return data.files;
 }
 
-async function listarArquivos(accessToken: string, q: string): Promise<DriveArquivo[]> {
-  const arquivos: DriveArquivo[] = [];
+/** Arquivos de qualquer pasta cujo nome começa com `prefixo` (a busca do Drive é por prefixo de termo). */
+export async function findFilesByNamePrefix(
+  accessToken: string,
+  prefixo: string,
+  mimeType: string
+): Promise<{ id: string; name: string; webViewLink?: string }[]> {
+  const safe = prefixo.replace(/'/g, "\\'");
+  const arquivos: { id: string; name: string; webViewLink?: string }[] = [];
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
-      q,
-      fields: 'nextPageToken,files(id,name,mimeType,webViewLink)',
+      q: `name contains '${safe}' and mimeType='${mimeType}' and trashed=false`,
+      fields: 'nextPageToken,files(id,name,webViewLink)',
       pageSize: '1000',
     });
     if (pageToken) params.set('pageToken', pageToken);
@@ -619,49 +626,20 @@ async function listarArquivos(accessToken: string, q: string): Promise<DriveArqu
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!response.ok) {
-      throw new Error(`Falha ao listar arquivos: ${response.status}`);
+      throw new Error(`Falha ao buscar arquivos '${prefixo}': ${response.status}`);
     }
-    const data = (await response.json()) as { files: DriveArquivo[]; nextPageToken?: string };
+    const data = (await response.json()) as {
+      files: { id: string; name: string; webViewLink?: string }[];
+      nextPageToken?: string;
+    };
     arquivos.push(...data.files);
     pageToken = data.nextPageToken;
   } while (pageToken);
   return arquivos;
 }
-
-/** Arquivos (não pastas) direto dentro de `parentId`. */
-export async function listFilesInFolder(accessToken: string, parentId: string): Promise<DriveArquivo[]> {
-  return listarArquivos(
-    accessToken,
-    `'${parentId}' in parents and mimeType!='application/vnd.google-apps.folder' and trashed=false`
-  );
-}
-
-/** Arquivos de qualquer pasta cujo nome começa com `prefixo` (a busca do Drive é por prefixo de termo). */
-export async function findFilesByNamePrefix(accessToken: string, prefixo: string, mimeType: string): Promise<DriveArquivo[]> {
-  const safe = prefixo.replace(/'/g, "\\'");
-  return listarArquivos(accessToken, `name contains '${safe}' and mimeType='${mimeType}' and trashed=false`);
-}
-
-export async function downloadFileText(accessToken: string, fileId: string): Promise<string> {
-  const response = await fetch(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) {
-    throw new Error(`Falha ao baixar arquivo ${fileId}: ${response.status}`);
-  }
-  return response.text();
-}
 ```
 
-E trocar o corpo de `listFileNamesInFolder` (criado no plano do modo SADT, Task 4) para reaproveitar:
-
-```ts
-export async function listFileNamesInFolder(accessToken: string, parentId: string): Promise<string[]> {
-  return (await listFilesInFolder(accessToken, parentId)).map((f) => f.name);
-}
-```
-
-(Mover `listFileNamesInFolder` para depois de `listFilesInFolder` no arquivo, se precisar, para manter a leitura em ordem.)
+(Escreva com a ferramenta de edição de arquivo: dentro do código, o `replace` tem de ficar com uma barra invertida dupla antes do apóstrofo, como em `findSubfolderByName`, que já existe no arquivo. Copie o escape de lá.)
 
 - [ ] **Step 2: Criar `api/sadt.ts`**
 
@@ -675,7 +653,6 @@ import {
   findFilesByNamePrefix,
   findSubfoldersByName,
   listFilesInFolder,
-  type DriveArquivo,
 } from './_lib/google.js';
 import { mapearComLimite, montarPainel } from './_lib/painel-sadt.js';
 import { pastaDoMes } from './_lib/sadt.js';
@@ -685,7 +662,7 @@ export const config = { maxDuration: 60 };
 const NOME_LIVRO = '_faturamento.json';
 
 /** JSON do Drive; null quando não abre (o painel mostra como registro ilegível). */
-async function baixarJson(accessToken: string, arquivo: DriveArquivo): Promise<unknown> {
+async function baixarJson(accessToken: string, arquivo: { id: string; name: string }): Promise<unknown> {
   try {
     return JSON.parse((await downloadFileText(accessToken, arquivo.id)).replace(/^\uFEFF/, ''));
   } catch {
