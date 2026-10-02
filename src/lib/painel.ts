@@ -100,3 +100,23 @@ export function guiasPorDia(guias: GuiaPainel[]): Map<number, GuiaPainel[]> {
 export function formatarMoeda(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+
+/**
+ * Linha de detalhe de uma guia no painel. Nas guias que pedem atenção o número da
+ * guia vai na frente do motivo, mas só quando o motivo ainda não o traz.
+ */
+export function detalheDaGuia(guia: GuiaPainel): string {
+  if (guia.status === 'faturada') {
+    return [guia.guiaPortal && `guia ${guia.guiaPortal}`, guia.valor !== null && formatarMoeda(guia.valor)]
+      .filter(Boolean)
+      .join(' · ');
+  }
+  if (guia.status === 'falta_faturar') {
+    return guia.digitalizadoPor ? `digitalizada por ${guia.digitalizadoPor}` : 'digitalizada';
+  }
+  const motivo = guia.motivo ?? '';
+  const numero = guia.guiaPortal;
+  if (!numero) return motivo;
+  if (!motivo) return `guia ${numero}`;
+  return motivo.includes(numero) ? motivo : `guia ${numero} · ${motivo}`;
+}

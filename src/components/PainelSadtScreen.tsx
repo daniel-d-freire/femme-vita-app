@@ -7,6 +7,7 @@ import {
   buscarPainel,
   comandoRobo,
   deslocarMes,
+  detalheDaGuia,
   diaDaSemana,
   diasDoMes,
   formatarMoeda,
@@ -279,19 +280,6 @@ function CabecalhoSecao({
       <p className="mt-1 font-serif text-[15px] italic leading-snug text-navy/60">{children}</p>
     </header>
   );
-}
-
-function detalheDaGuia(guia: GuiaPainel): string {
-  if (guia.status === 'faturada') {
-    return [guia.guiaPortal && `guia ${guia.guiaPortal}`, guia.valor !== null && formatarMoeda(guia.valor)]
-      .filter(Boolean)
-      .join(' · ');
-  }
-  if (guia.status === 'falta_faturar') {
-    return guia.digitalizadoPor ? `digitalizada por ${guia.digitalizadoPor}` : 'digitalizada';
-  }
-  const prefixo = guia.guiaPortal ? `guia ${guia.guiaPortal} · ` : '';
-  return `${prefixo}${guia.motivo ?? ''}`;
 }
 
 function LinhaGuia({ guia }: { guia: GuiaPainel }) {

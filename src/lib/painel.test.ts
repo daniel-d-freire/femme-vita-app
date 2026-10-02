@@ -1,6 +1,6 @@
 // src/lib/painel.test.ts
 import { describe, expect, it } from 'vitest';
-import { comandoRobo, deslocarMes, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type GuiaPainel } from './painel';
+import { comandoRobo, deslocarMes, detalheDaGuia, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type GuiaPainel } from './painel';
 
 function guia(data: string | null, status: GuiaPainel['status'] = 'faturada'): GuiaPainel {
   return { chave: `${data}.json`, paciente: 'X', data, status, guiaPortal: null, valor: null, motivo: null, pdfId: null, digitalizadoPor: null };
@@ -44,6 +44,34 @@ describe('guiasPorDia', () => {
     expect(porDia.get(1)?.map((g) => g.status)).toEqual(['faturada', 'pendencia']);
     expect(porDia.get(30)).toHaveLength(1);
     expect(porDia.size).toBe(2);
+  });
+});
+
+describe('detalheDaGuia', () => {
+  const base = guia('2026-09-21', 'conferir');
+
+  it('não repete o número da guia quando o motivo já o traz', () => {
+    const g = { ...base, guiaPortal: '3320330', motivo: 'guia 3320330 ficou sem confirmação de finalização; confira no portal' };
+    expect(detalheDaGuia(g)).toBe('guia 3320330 ficou sem confirmação de finalização; confira no portal');
+  });
+  it('põe o número da guia na frente quando o motivo não o menciona', () => {
+    const g = { ...base, status: 'pendencia' as const, guiaPortal: '3320330', motivo: 'paciente não encontrada no portal' };
+    expect(detalheDaGuia(g)).toBe('guia 3320330 · paciente não encontrada no portal');
+  });
+  it('sem número de guia, mostra só o motivo', () => {
+    expect(detalheDaGuia({ ...base, motivo: 'senha ilegível' })).toBe('senha ilegível');
+  });
+  it('sem motivo, mostra só o número, sem separador solto', () => {
+    expect(detalheDaGuia({ ...base, guiaPortal: '3320330', motivo: null })).toBe('guia 3320330');
+    expect(detalheDaGuia({ ...base, guiaPortal: null, motivo: null })).toBe('');
+  });
+  it('faturada mostra número e valor', () => {
+    const g = { ...base, status: 'faturada' as const, guiaPortal: '3320330', valor: 82.02 };
+    expect(detalheDaGuia(g)).toMatch(/^guia 3320330 · R\$\s82,02$/);
+  });
+  it('falta faturar diz quem digitalizou, ou só "digitalizada"', () => {
+    expect(detalheDaGuia({ ...base, status: 'falta_faturar', digitalizadoPor: 'recepcao@exemplo.com' })).toBe('digitalizada por recepcao@exemplo.com');
+    expect(detalheDaGuia({ ...base, status: 'falta_faturar', digitalizadoPor: null })).toBe('digitalizada');
   });
 });
 
