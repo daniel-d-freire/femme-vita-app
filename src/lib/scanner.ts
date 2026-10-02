@@ -130,32 +130,30 @@ export async function detectPaperCorners(dataUrl: string): Promise<Corners | nul
 
   try {
     cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
-    cv.Canny(gray, edges, 50, 200);
-    cv.GaussianBlur(edges, blurred, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
-    cv.threshold(blurred, thresh, 0, 255, cv.THRESH_OTSU);
-    cv.findContours(thresh, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
 
-    const imgArea = srcMat.cols * srcMat.rows;
-    let maxArea = 0;
-    let maxIdx = -1;
-    for (let i = 0; i < contours.size(); i++) {
-      const area = cv.contourArea(contours.get(i));
-      if (area > maxArea) {
-        maxArea = area;
-        maxIdx = i;
-      }
-    }
+    // Candidato 1, pelas bordas: Canny com as falhas fechadas. Só contornos
+    // externos — os quadros impressos da guia ficam dentro da folha e não concorrem.
+    cv.Canny(blurred, edges, 30, 100);
+    const kernelBorda = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernelBorda);
+    cv.dilate(edges, edges, kernelBorda);
+    kernelBorda.delete();
+    const porBorda = maiorQuadrilateroExterno(edges, contours, hierarchy);
 
-    if (maxIdx < 0 || maxArea < imgArea * 0.1) {
-      // Less than 10% of the image — not a paper.
-      return null;
-    }
+    // Candidato 2, pelo claro: o papel é a região clara grande. Fecha o texto
+    // escuro para a folha virar uma mancha só.
+    cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+    const kernelClaro = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(25, 25));
+    cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelClaro);
+    kernelClaro.delete();
+    const porClaro = maiorQuadrilateroExterno(thresh, contours, hierarchy);
 
-    const contour: CvAny = contours.get(maxIdx);
-    const found = cornersFromContour(contour, srcMat);
-    if (!found) return null;
+    const candidatos = [porBorda, porClaro].filter((c): c is CandidatoFolha => c !== null);
+    const folha = escolherFolha(candidatos, srcMat.cols * srcMat.rows);
+    if (!folha) return null;
     // Volta para as coordenadas da imagem original.
-    return clampCorners(scaleCorners(found, 1 / fit.scale), fullW, fullH);
+    return clampCorners(scaleCorners(ordenarCantos(folha.quad), 1 / fit.scale), fullW, fullH);
   } finally {
     srcMat.delete();
     gray.delete();
@@ -167,39 +165,74 @@ export async function detectPaperCorners(dataUrl: string): Promise<Corners | nul
   }
 }
 
-function cornersFromContour(contour: CvAny, srcMat: CvAny): Corners | null {
-  // Use bounding rotated rect center as reference, then pick the contour
-  // point farthest from center in each quadrant — those are our corners.
-  const rect = cv.minAreaRect(contour);
-  const cx = rect.center.x;
-  const cy = rect.center.y;
+export type CandidatoFolha = { quad: Point[]; area: number };
 
-  let tl: Point | null = null;
-  let tr: Point | null = null;
-  let bl: Point | null = null;
-  let br: Point | null = null;
-  let tlD = 0, trD = 0, blD = 0, brD = 0;
-  const data: Int32Array = contour.data32S;
+/** Abaixo disso o contorno não é a folha (é um quadro impresso, uma mancha). */
+const AREA_MINIMA_FOLHA = 0.2;
 
-  for (let i = 0; i < data.length; i += 2) {
-    const p: Point = { x: data[i], y: data[i + 1] };
-    const d = distance(p, { x: cx, y: cy });
-    if (p.x < cx && p.y < cy && d > tlD) { tl = p; tlD = d; }
-    else if (p.x > cx && p.y < cy && d > trD) { tr = p; trD = d; }
-    else if (p.x < cx && p.y > cy && d > blD) { bl = p; blD = d; }
-    else if (p.x > cx && p.y > cy && d > brD) { br = p; brD = d; }
+/**
+ * A folha contém todos os quadros impressos da guia, então entre os candidatos
+ * plausíveis vale o maior. Errar para mais deixa um pouco de mesa; errar para
+ * menos corta a guia — o que obrigava a ajustar os cantos à mão.
+ */
+export function escolherFolha(candidatos: CandidatoFolha[], areaImagem: number): CandidatoFolha | null {
+  let melhor: CandidatoFolha | null = null;
+  for (const c of candidatos) {
+    if (c.area < areaImagem * AREA_MINIMA_FOLHA) continue;
+    if (!melhor || c.area > melhor.area) melhor = c;
   }
+  return melhor;
+}
 
-  if (!tl || !tr || !bl || !br) {
-    // Fallback: image corners
-    return {
-      topLeft: { x: 0, y: 0 },
-      topRight: { x: srcMat.cols, y: 0 },
-      bottomRight: { x: srcMat.cols, y: srcMat.rows },
-      bottomLeft: { x: 0, y: srcMat.rows },
-    };
+/** Quatro pontos soltos → cantos: menor x+y é o superior esquerdo, maior é o inferior direito; y−x separa os outros dois. */
+export function ordenarCantos(pontos: Point[]): Corners {
+  const porSoma = [...pontos].sort((a, b) => a.x + a.y - (b.x + b.y));
+  const porDiferenca = [...pontos].sort((a, b) => a.y - a.x - (b.y - b.x));
+  return {
+    topLeft: porSoma[0],
+    topRight: porDiferenca[0],
+    bottomRight: porSoma[porSoma.length - 1],
+    bottomLeft: porDiferenca[porDiferenca.length - 1],
+  };
+}
+
+/** Maior contorno externo da imagem binária, reduzido a um quadrilátero pelo casco convexo. */
+function maiorQuadrilateroExterno(binaria: CvAny, contours: CvAny, hierarchy: CvAny): CandidatoFolha | null {
+  cv.findContours(binaria, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+  let maior = -1;
+  let maiorArea = 0;
+  for (let i = 0; i < contours.size(); i++) {
+    const area = cv.contourArea(contours.get(i));
+    if (area > maiorArea) {
+      maiorArea = area;
+      maior = i;
+    }
   }
-  return { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl };
+  if (maior < 0) return null;
+
+  const casco: CvAny = new cv.Mat();
+  try {
+    cv.convexHull(contours.get(maior), casco, false, true);
+    const area = cv.contourArea(casco);
+    const perimetro = cv.arcLength(casco, true);
+    // Simplifica o casco até sobrarem 4 vértices; sem isso, o retângulo mínimo.
+    for (const tolerancia of [0.02, 0.03, 0.05, 0.08]) {
+      const aprox: CvAny = new cv.Mat();
+      try {
+        cv.approxPolyDP(casco, aprox, tolerancia * perimetro, true);
+        if (aprox.rows === 4) {
+          const d: Int32Array = aprox.data32S;
+          return { quad: [0, 1, 2, 3].map((k) => ({ x: d[2 * k], y: d[2 * k + 1] })), area };
+        }
+      } finally {
+        aprox.delete();
+      }
+    }
+    const vertices: Point[] = cv.RotatedRect.points(cv.minAreaRect(casco));
+    return { quad: vertices.map((p) => ({ x: p.x, y: p.y })), area };
+  } finally {
+    casco.delete();
+  }
 }
 
 export type FilterKind = 'bw' | 'gray' | 'color';
