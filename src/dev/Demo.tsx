@@ -1,8 +1,10 @@
 // src/dev/Demo.tsx — vitrine só de desenvolvimento. main.tsx não carrega isto em produção.
 import { CameraScreen } from '../components/CameraScreen';
+import { PainelSadtScreen } from '../components/PainelSadtScreen';
 import { SadtResultScreen } from '../components/SadtResultScreen';
 import { SavedScreen } from '../components/SavedScreen';
 import type { SadtAnalyzeResult } from '../lib/api';
+import type { PainelSadt } from '../lib/painel';
 
 const PAGINA =
   'data:image/svg+xml;utf8,' +
@@ -30,6 +32,22 @@ const PASTAS = [
   { id: 'p1', name: 'MARIA DE TESTE LIMA' },
   { id: 'p2', name: 'Ana Exemplo Souza' },
 ];
+
+const PAINEL: PainelSadt = {
+  mes: '2026-09',
+  guias: [
+    { chave: 'a.json', paciente: 'MARIA DE TESTE LIMA', data: '2026-09-02', status: 'faturada', guiaPortal: '3320311', valor: 82.02, motivo: null, pdfId: 'p1', digitalizadoPor: 'recepcao@exemplo.com' },
+    { chave: 'b.json', paciente: 'Ana Exemplo Souza', data: '2026-09-02', status: 'faturada', guiaPortal: '3320312', valor: 82.02, motivo: null, pdfId: 'p2', digitalizadoPor: 'recepcao@exemplo.com' },
+    { chave: 'c.json', paciente: 'Beatriz Modelo Costa', data: '2026-09-09', status: 'pendencia', guiaPortal: null, valor: null, motivo: 'Trava 1: o portal carregou "BEATRIZ OUTRA", a guia diz "BEATRIZ MODELO COSTA"', pdfId: 'p3', digitalizadoPor: 'recepcao@exemplo.com' },
+    { chave: 'd.json', paciente: 'Carla Demonstração Reis', data: '2026-09-15', status: 'falta_faturar', guiaPortal: null, valor: null, motivo: null, pdfId: 'p4', digitalizadoPor: 'recepcao@exemplo.com' },
+    { chave: 'e.json', paciente: 'Diana Fictícia Lopes', data: '2026-09-21', status: 'conferir', guiaPortal: '3320330', valor: 82.02, motivo: 'guia 3320330 ficou sem confirmação de finalização; confira no portal antes de rodar de novo', pdfId: 'p5', digitalizadoPor: 'recepcao@exemplo.com' },
+    { chave: 'f.json', paciente: 'Elisa Amostra Prado', data: '2026-09-30', status: 'duplicada', guiaPortal: null, valor: null, motivo: 'mesma senha de a.json', pdfId: 'p6', digitalizadoPor: 'recepcao@exemplo.com' },
+  ],
+  pdfsSemRegistro: [{ id: 'p9', nome: 'Guia_SADT_Fabiana Teste_2026.09.18.pdf', link: 'https://drive.google.com' }],
+  ultimaExecucao: { inicio: '2026-10-03T13:00:00.000Z', fim: '2026-10-03T13:06:00.000Z', dryRun: false, resumo: '2 faturadas, 1 pendência, 1 para conferir no portal' },
+  avisoLivro: null,
+  totais: { digitalizadas: 6, faturadas: 2, valorFaturado: 164.04, faltaFaturar: 1, atencao: 3, duplicadas: 1 },
+};
 
 const nada = () => undefined;
 const salvar = (...args: unknown[]) => console.log('[demo] salvar', args);
@@ -93,10 +111,19 @@ export default function Demo({ nome }: { nome: string }) {
           }}
         />
       );
+    case 'painel-sadt':
+      return <PainelSadtScreen mesInicial="2026-09" carregar={async () => PAINEL} />;
+    case 'painel-sadt-vazio':
+      return (
+        <PainelSadtScreen
+          mesInicial="2026-08"
+          carregar={async (mes) => ({ ...PAINEL, mes, guias: [], pdfsSemRegistro: [], ultimaExecucao: null, totais: { digitalizadas: 0, faturadas: 0, valorFaturado: 0, faltaFaturar: 0, atencao: 0, duplicadas: 0 } })}
+        />
+      );
     default:
       return (
         <p style={{ padding: 24, fontFamily: 'monospace' }}>
-          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo
+          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo, painel-sadt, painel-sadt-vazio
         </p>
       );
   }

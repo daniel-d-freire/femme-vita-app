@@ -5,6 +5,7 @@ import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { LoginScreen } from './components/LoginScreen';
+import { PainelSadtScreen } from './components/PainelSadtScreen';
 import { SadtResultScreen } from './components/SadtResultScreen';
 import { SavedScreen } from './components/SavedScreen';
 import { fitPagesToBudget, formatBytes, payloadBytes, type CapturedPage } from './lib/camera';
@@ -53,6 +54,8 @@ export default function App() {
     () => (new URLSearchParams(window.location.search).get('modo') === 'sadt' ? 'sadt' : 'geral'),
     []
   );
+  // ?tela=faturamento-sadt vem do card "Faturamento SADT" do Hub (Master).
+  const tela = useMemo(() => new URLSearchParams(window.location.search).get('tela'), []);
   const [salvasNaSessao, setSalvasNaSessao] = useState(0);
   const [ultimoSalvo, setUltimoSalvo] = useState<{ nome: string; n: number } | null>(null);
 
@@ -255,6 +258,7 @@ export default function App() {
 
   if (auth.kind === 'loading') return <BootScreen />;
   if (auth.kind === 'unauthenticated') return <LoginScreen error={auth.error} />;
+  if (tela === 'faturamento-sadt') return <PainelSadtScreen />;
 
   switch (screen.kind) {
     case 'crop':
