@@ -100,3 +100,91 @@ export function separarAgenda(itens: unknown[], mes: string, hoje: string): { at
   }
   return { atendidos: atendidos.sort(porDataENome), semBaixa: semBaixa.sort(porDataENome) };
 }
+
+/** O que o cruzamento precisa de cada registro de guia do mês. */
+export type RegistroCruzamento = {
+  chave: string;
+  paciente: string;
+  nomeNaGuia: string | null;
+  carteira: string | null;
+  data: string;
+  faturada: boolean;
+};
+
+export type BlocoAgenda = {
+  disponivel: true;
+  atendidas: number;
+  digitalizadas: number;
+  faturadas: number;
+  semGuia: { paciente: string; data: string; servico: string | null }[];
+  semBaixa: SemBaixa[];
+  guiaSemAtendimento: { chave: string; paciente: string; data: string | null }[];
+  convenioErrado: { paciente: string; data: string; convenio: string | null }[];
+  dataDiferente: { chave: string; dataAgenda: string }[];
+};
+
+/** Guia com data até aqui de distância do atendimento ainda casa (a leitura da data pode errar). */
+const MAX_DIAS = 3;
+const CARTEIRA_MINIMA = 7;
+
+const distanciaEmDias = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 864e5;
+
+function mesmaPessoa(a: Atendimento, r: RegistroCruzamento): boolean {
+  if (mesmaPaciente(a.paciente, r.paciente)) return true;
+  if (r.nomeNaGuia && mesmaPaciente(a.paciente, r.nomeNaGuia)) return true;
+  const c1 = a.carteira ?? '';
+  const c2 = (r.carteira ?? '').replace(/\D/g, '');
+  return c1.length >= CARTEIRA_MINIMA && c1 === c2;
+}
+
+/**
+ * Casa cada atendimento com no máximo um registro: primeiro no mesmo dia, depois o
+ * mais próximo até MAX_DIAS. MedSênior tem preferência; atendimento de outro convênio
+ * só conta quando casa com uma guia (o Apolo estava com o convênio errado).
+ */
+export function cruzarAgenda(atendidos: Atendimento[], semBaixa: SemBaixa[], registros: RegistroCruzamento[]): BlocoAgenda {
+  const ordem = [...atendidos].sort((a, b) => Number(b.medsenior) - Number(a.medsenior) || a.data.localeCompare(b.data));
+  const livres = new Set(registros.map((r) => r.chave));
+  const par = new Map<string, RegistroCruzamento>();
+
+  for (const a of ordem) {
+    const r = registros.find((r) => livres.has(r.chave) && r.data === a.data && mesmaPessoa(a, r));
+    if (r) {
+      par.set(a.id, r);
+      livres.delete(r.chave);
+    }
+  }
+  const dataDiferente: BlocoAgenda['dataDiferente'] = [];
+  for (const a of ordem) {
+    if (par.has(a.id)) continue;
+    const perto = registros
+      .filter((r) => livres.has(r.chave) && distanciaEmDias(r.data, a.data) <= MAX_DIAS && mesmaPessoa(a, r))
+      .sort((x, y) => distanciaEmDias(x.data, a.data) - distanciaEmDias(y.data, a.data))[0];
+    if (perto) {
+      par.set(a.id, perto);
+      livres.delete(perto.chave);
+      dataDiferente.push({ chave: perto.chave, dataAgenda: a.data });
+    }
+  }
+
+  const contados = atendidos.filter((a) => a.medsenior || par.has(a.id));
+  const casados = contados.filter((a) => par.has(a.id));
+  return {
+    disponivel: true,
+    atendidas: contados.length,
+    digitalizadas: casados.length,
+    faturadas: casados.filter((a) => par.get(a.id)?.faturada).length,
+    semGuia: atendidos
+      .filter((a) => a.medsenior && !par.has(a.id))
+      .map((a) => ({ paciente: a.paciente, data: a.data, servico: a.servico })),
+    semBaixa,
+    guiaSemAtendimento: registros
+      .filter((r) => livres.has(r.chave))
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map((r) => ({ chave: r.chave, paciente: r.paciente, data: r.data })),
+    convenioErrado: atendidos
+      .filter((a) => !a.medsenior && par.has(a.id))
+      .map((a) => ({ paciente: a.paciente, data: a.data, convenio: a.convenio })),
+    dataDiferente,
+  };
+}

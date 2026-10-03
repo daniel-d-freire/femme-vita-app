@@ -1,6 +1,6 @@
 // api/_lib/agenda-sadt.test.ts
 import { describe, expect, it } from 'vitest';
-import { ehMedsenior, mesmaPaciente, normalizarNome, separarAgenda } from './agenda-sadt.js';
+import { cruzarAgenda, ehMedsenior, mesmaPaciente, normalizarNome, separarAgenda, type Atendimento } from './agenda-sadt.js';
 
 function item(extra: Record<string, unknown> = {}) {
   return {
@@ -84,5 +84,89 @@ describe('separarAgenda', () => {
   it('carteira numérica vira texto só com dígitos; item fora do formato é ignorado', () => {
     const r = separarAgenda([item({ convenioCarteira: 2000000000001 }), { lixo: true }], '2026-09', '2026-10-03');
     expect(r.atendidos.map((a) => a.carteira)).toEqual(['2000000000001']);
+  });
+});
+
+function atendido(paciente: string, data: string, extra: Partial<Atendimento> = {}): Atendimento {
+  return { id: `${paciente}-${data}`, data, paciente, servico: 'Consulta Cirurgia', convenio: 'MEDSENIOR', medsenior: true, carteira: null, ...extra };
+}
+
+function reg(chave: string, paciente: string, data: string, extra: Record<string, unknown> = {}) {
+  return { chave, paciente, nomeNaGuia: paciente.toUpperCase(), carteira: null, data, faturada: true, ...extra };
+}
+
+describe('cruzarAgenda', () => {
+  it('casa no mesmo dia e conta digitalizadas e faturadas', () => {
+    const b = cruzarAgenda(
+      [atendido('Maria Exemplo Souza', '2026-09-10'), atendido('Bruna Teste Lima', '2026-09-11')],
+      [],
+      [reg('a.json', 'Maria Exemplo Souza', '2026-09-10'), reg('b.json', 'Bruna Teste Lima', '2026-09-11', { faturada: false })],
+    );
+    expect(b).toMatchObject({ disponivel: true, atendidas: 2, digitalizadas: 2, faturadas: 1, semGuia: [], guiaSemAtendimento: [], dataDiferente: [], convenioErrado: [] });
+  });
+
+  it('atendida sem guia e guia sem atendimento', () => {
+    const b = cruzarAgenda(
+      [atendido('Maria Exemplo Souza', '2026-09-10')],
+      [],
+      [reg('x.json', 'Carla Outra Pessoa', '2026-09-12')],
+    );
+    expect(b.semGuia).toEqual([{ paciente: 'Maria Exemplo Souza', data: '2026-09-10', servico: 'Consulta Cirurgia' }]);
+    expect(b.guiaSemAtendimento).toEqual([{ chave: 'x.json', paciente: 'Carla Outra Pessoa', data: '2026-09-12' }]);
+    expect(b.digitalizadas).toBe(0);
+  });
+
+  it('até 3 dias de diferença casa com aviso; 4 dias não casa', () => {
+    const b = cruzarAgenda(
+      [atendido('Maria Exemplo Souza', '2026-09-16'), atendido('Bruna Teste Lima', '2026-09-20')],
+      [],
+      [reg('a.json', 'Maria Exemplo Souza', '2026-09-18'), reg('b.json', 'Bruna Teste Lima', '2026-09-24')],
+    );
+    expect(b.dataDiferente).toEqual([{ chave: 'a.json', dataAgenda: '2026-09-16' }]);
+    expect(b.guiaSemAtendimento.map((g) => g.chave)).toEqual(['b.json']);
+  });
+
+  it('dois atendimentos da mesma paciente precisam de duas guias', () => {
+    const b = cruzarAgenda(
+      [atendido('Maria Exemplo Souza', '2026-09-03'), atendido('Maria Exemplo Souza', '2026-09-24')],
+      [],
+      [reg('a.json', 'Maria Exemplo Souza', '2026-09-24')],
+    );
+    expect(b.semGuia).toEqual([{ paciente: 'Maria Exemplo Souza', data: '2026-09-03', servico: 'Consulta Cirurgia' }]);
+  });
+
+  it('casa pelo nome da pasta, pelo nome na guia ou pela carteirinha', () => {
+    const b = cruzarAgenda(
+      [
+        atendido('Ana Paula Modelo Oliveira', '2026-09-01'),
+        atendido('Beatriz Exemplo', '2026-09-02', { carteira: '2000000000077' }),
+      ],
+      [],
+      [
+        reg('a.json', 'Ana paula Modelo', '2026-09-01', { nomeNaGuia: 'NOME LIDO ERRADO' }),
+        reg('b.json', 'Beatriz Lida Errado', '2026-09-02', { nomeNaGuia: null, carteira: '2000000000077' }),
+      ],
+    );
+    expect(b.digitalizadas).toBe(2);
+  });
+
+  it('atendimento de outro convênio só entra quando casa com guia, como convênio errado', () => {
+    const b = cruzarAgenda(
+      [
+        atendido('Maria Exemplo Souza', '2026-09-10', { medsenior: false, convenio: null }),
+        atendido('Paciente Amil Exemplo', '2026-09-10', { medsenior: false, convenio: 'AMIL' }),
+      ],
+      [],
+      [reg('a.json', 'Maria Exemplo Souza', '2026-09-10')],
+    );
+    expect(b.atendidas).toBe(1);
+    expect(b.digitalizadas).toBe(1);
+    expect(b.semGuia).toEqual([]);
+    expect(b.convenioErrado).toEqual([{ paciente: 'Maria Exemplo Souza', data: '2026-09-10', convenio: null }]);
+  });
+
+  it('repassa as consultas sem baixa', () => {
+    const semBaixa = [{ paciente: 'Maria Exemplo Souza', data: '2026-09-29', servico: null, status: 'agendada' as const }];
+    expect(cruzarAgenda([], semBaixa, []).semBaixa).toEqual(semBaixa);
   });
 });
