@@ -130,7 +130,9 @@ export function montarPainel(entrada: {
       pdfId: reg.data.pdf.id,
       digitalizadoPor: reg.data.digitalizadoPor ?? null,
     });
-    paraCruzar.push({
+    // Cópia que o robô marcou como duplicada já aparece em "Duplicadas": fora do
+    // cruzamento, senão viraria também "guia sem atendimento" e o placar nunca fecharia.
+    if (anotado?.status !== 'duplicada') paraCruzar.push({
       chave: nome,
       paciente: reg.data.paciente,
       nomeNaGuia: reg.data.nomeNaGuia ?? null,

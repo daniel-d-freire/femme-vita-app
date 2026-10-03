@@ -17,11 +17,11 @@ describe('lerAgendaNinsaude', () => {
     );
     const r = await lerAgendaNinsaude('REFRESH', '2026-09-01', '2026-09-30', buscar);
     expect(r).toEqual({ ok: true, itens: [{ id: 1 }] });
-    const [urlToken, initToken] = buscar.mock.calls[0] as [string, RequestInit];
+    const [urlToken, initToken] = buscar.mock.calls[0] as unknown as [string, RequestInit];
     expect(urlToken).toBe('https://api.ninsaude.com/v1/oauth2/token');
     expect((initToken.headers as Record<string, string>)['X-Grant-Type']).toBe('refresh_token');
     expect(String(initToken.body)).toContain('refresh_token=REFRESH');
-    const [urlAgenda, initAgenda] = buscar.mock.calls[1] as [string, RequestInit];
+    const [urlAgenda, initAgenda] = buscar.mock.calls[1] as unknown as [string, RequestInit];
     expect(urlAgenda).toBe('https://api.ninsaude.com/v1/atendimento_agenda/listar?dataInicial=2026-09-01&dataFinal=2026-09-30');
     expect((initAgenda.headers as Record<string, string>).Authorization).toBe('bearer ACESSO');
   });

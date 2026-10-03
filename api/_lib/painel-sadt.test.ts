@@ -271,7 +271,7 @@ describe('montarPainel: duplicadas e campos nulos', () => {
     convenioCarteira: null,
   };
 
-  it('com duas cópias da guia, o atendimento casa com a faturada, não com a duplicada listada antes', () => {
+  it('com duas cópias da guia, casa a faturada e a duplicada fica fora do cruzamento', () => {
     const painel = montarPainel({
       mes: '2026-09',
       registros: [
@@ -290,7 +290,7 @@ describe('montarPainel: duplicadas e campos nulos', () => {
       disponivel: true,
       digitalizadas: 1,
       faturadas: 1,
-      guiaSemAtendimento: [{ chave: 'a.json' }],
+      guiaSemAtendimento: [],
     });
   });
 
