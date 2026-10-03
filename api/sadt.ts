@@ -8,7 +8,8 @@ import {
   findSubfoldersByName,
   listFilesInFolder,
 } from './_lib/google.js';
-import { mapearComLimite, montarPainel } from './_lib/painel-sadt.js';
+import { lerAgendaNinsaude } from './_lib/ninsaude.js';
+import { hojeEmBrasilia, mapearComLimite, montarPainel } from './_lib/painel-sadt.js';
 import { pastaDoMes } from './_lib/sadt.js';
 
 export const config = { maxDuration: 60 };
@@ -63,7 +64,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const arquivosDeRegistro = arquivos.filter((a) => /\.json$/i.test(a.name) && !a.name.startsWith('_'));
     const arquivoDoLivro = arquivos.find((a) => a.name === NOME_LIVRO);
 
-    const [registros, livro, pdfs] = await Promise.all([
+    const ultimoDia = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const [registros, livro, pdfs, agenda] = await Promise.all([
       mapearComLimite(arquivosDeRegistro, 8, async (a) => ({ nome: a.name, conteudo: await baixarJson(accessToken, a) })),
       // Livro que existe mas não abre não pode virar "sem livro" (tudo como "falta
       // faturar", R$ 0): um objeto inválido faz montarPainel mostrar o aviso do livro.
@@ -71,6 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? baixarJson(accessToken, arquivoDoLivro).then((livro) => livro ?? { livroIlegivel: true })
         : Promise.resolve(null),
       findFilesByNamePrefix(accessToken, 'Guia_SADT_', 'application/pdf'),
+      lerAgendaNinsaude(process.env.NINSAUDE_REFRESH_TOKEN, `${mes}-01`, `${mes}-${String(ultimoDia).padStart(2, '0')}`),
     ]);
 
     return res.status(200).json(
@@ -79,6 +82,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         registros,
         livro,
         pdfs: pdfs.map((p) => ({ id: p.id, nome: p.name, link: p.webViewLink ?? null })),
+        agenda,
+        hoje: hojeEmBrasilia(),
       })
     );
   } catch (err) {

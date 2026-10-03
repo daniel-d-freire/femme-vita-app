@@ -1,5 +1,7 @@
 // api/_lib/painel-sadt.ts
 import { z } from 'zod';
+import { cruzarAgenda, separarAgenda, type BlocoAgenda } from './agenda-sadt.js';
+import type { ResultadoAgenda } from './ninsaude.js';
 
 export type StatusPainel = 'falta_faturar' | 'faturada' | 'conferir' | 'pendencia' | 'duplicada' | 'registro_ilegivel';
 
@@ -18,12 +20,15 @@ export type GuiaPainel = {
 export type PdfSemRegistro = { id: string; nome: string; link: string | null };
 export type ExecucaoPainel = { inicio: string; fim: string; dryRun: boolean; resumo: string };
 
+export type AgendaPainel = { disponivel: false; motivo: string } | BlocoAgenda;
+
 export type PainelSadt = {
   mes: string;
   guias: GuiaPainel[];
   pdfsSemRegistro: PdfSemRegistro[];
   ultimaExecucao: ExecucaoPainel | null;
   avisoLivro: string | null;
+  agenda: AgendaPainel;
   totais: {
     digitalizadas: number;
     faturadas: number;
@@ -37,6 +42,8 @@ export type PainelSadt = {
 /** Só o que o painel usa do registro: leitura tolerante a campos novos. */
 const RegistroLeitura = z.object({
   paciente: z.string().min(1),
+  nomeNaGuia: z.string().optional(),
+  carteira: z.string().optional(),
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   pdf: z.object({ id: z.string().min(1) }),
   digitalizadoPor: z.string().optional(),
@@ -75,6 +82,10 @@ export function montarPainel(entrada: {
   registros: { nome: string; conteudo: unknown }[];
   livro: unknown | null;
   pdfs: PdfSemRegistro[];
+  /** Agenda do mês no NinSaúde; ausente = conferência desligada. */
+  agenda?: ResultadoAgenda;
+  /** AAAA-MM-DD em Brasília: consulta antes de hoje sem baixa vira aviso. */
+  hoje?: string;
 }): PainelSadt {
   let livro: z.infer<typeof LivroLeitura> | null = null;
   let avisoLivro: string | null = null;
@@ -87,6 +98,7 @@ export function montarPainel(entrada: {
   const guias: GuiaPainel[] = [];
   const chaves = new Set<string>();
   const pdfsComRegistro = new Set<string>();
+  const paraCruzar: { chave: string; paciente: string; nomeNaGuia: string | null; carteira: string | null; data: string; faturada: boolean }[] = [];
 
   for (const { nome, conteudo } of entrada.registros) {
     chaves.add(nome);
@@ -118,6 +130,14 @@ export function montarPainel(entrada: {
       pdfId: reg.data.pdf.id,
       digitalizadoPor: reg.data.digitalizadoPor ?? null,
     });
+    paraCruzar.push({
+      chave: nome,
+      paciente: reg.data.paciente,
+      nomeNaGuia: reg.data.nomeNaGuia ?? null,
+      carteira: reg.data.carteira ?? null,
+      data: reg.data.data,
+      faturada: anotado?.status === 'faturada',
+    });
   }
 
   // Entrada do livro cujo registro sumiu continua sendo um fato do faturamento.
@@ -147,12 +167,20 @@ export function montarPainel(entrada: {
     .filter((g) => g.status === 'faturada')
     .reduce((soma, g) => soma + (g.valor ?? 0), 0);
 
+  let agenda: AgendaPainel = { disponivel: false, motivo: 'conferência com a agenda desligada' };
+  if (entrada.agenda && !entrada.agenda.ok) agenda = { disponivel: false, motivo: entrada.agenda.motivo };
+  if (entrada.agenda?.ok) {
+    const { atendidos, semBaixa } = separarAgenda(entrada.agenda.itens, entrada.mes, entrada.hoje ?? hojeEmBrasilia());
+    agenda = cruzarAgenda(atendidos, semBaixa, paraCruzar);
+  }
+
   return {
     mes: entrada.mes,
     guias,
     pdfsSemRegistro,
     ultimaExecucao: execucoes.at(-1) ?? null,
     avisoLivro,
+    agenda,
     totais: {
       digitalizadas: entrada.registros.length,
       faturadas: contar('faturada'),
@@ -176,4 +204,9 @@ export async function mapearComLimite<T, R>(itens: T[], limite: number, fn: (ite
   };
   await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, trabalhador));
   return resultado;
+}
+
+/** AAAA-MM-DD no fuso de Brasília (a função roda em UTC na Vercel). */
+export function hojeEmBrasilia(agora: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
 }

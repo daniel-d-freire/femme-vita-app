@@ -1,6 +1,6 @@
 // api/_lib/painel-sadt.test.ts
 import { describe, expect, it } from 'vitest';
-import { mapearComLimite, montarPainel, pdfDoMes } from './painel-sadt.js';
+import { hojeEmBrasilia, mapearComLimite, montarPainel, pdfDoMes } from './painel-sadt.js';
 
 function registro(paciente: string, data: string, pdfId: string) {
   return {
@@ -200,5 +200,61 @@ describe('mapearComLimite', () => {
   });
   it('lista vazia', async () => {
     expect(await mapearComLimite([], 3, async (n: number) => n)).toEqual([]);
+  });
+});
+
+describe('montarPainel com a agenda', () => {
+  const agendaItem = (pacienteNome: string, data: string, status = 3) => ({
+    id: `${pacienteNome}-${data}`,
+    data,
+    pacienteNome,
+    status,
+    servicoDescricao: 'Consulta Cirurgia',
+    convenioId: 4,
+    convenioTitulo: 'MEDSENIOR',
+    convenioCarteira: null,
+  });
+
+  it('sem agenda informada, o bloco diz que a conferência está desligada', () => {
+    const painel = montarPainel({ mes: '2026-09', registros: [], livro: null, pdfs: [] });
+    expect(painel.agenda).toEqual({ disponivel: false, motivo: 'conferência com a agenda desligada' });
+  });
+
+  it('agenda indisponível repassa o motivo', () => {
+    const painel = montarPainel({ mes: '2026-09', registros: [], livro: null, pdfs: [], agenda: { ok: false, motivo: 'o NinSaúde não respondeu' }, hoje: '2026-10-03' });
+    expect(painel.agenda).toEqual({ disponivel: false, motivo: 'o NinSaúde não respondeu' });
+  });
+
+  it('cruza a agenda com os registros e usa o livro para saber o que foi faturado', () => {
+    const painel = montarPainel({
+      mes: '2026-09',
+      registros: [
+        { nome: 'a.json', conteudo: registro('Maria Exemplo Souza', '2026-09-10', 'p1') },
+        { nome: 'b.json', conteudo: registro('Bruna Teste Lima', '2026-09-11', 'p2') },
+        { nome: 'ruim.json', conteudo: null },
+      ],
+      livro: livro({ 'a.json': entrada('faturada', { guiaPortal: '3000001', valor: 82.02 }) }),
+      pdfs: [],
+      agenda: {
+        ok: true,
+        itens: [agendaItem('Maria Exemplo Souza', '2026-09-10'), agendaItem('Bruna Teste Lima', '2026-09-11'), agendaItem('Carla Sem Guia', '2026-09-12')],
+      },
+      hoje: '2026-10-03',
+    });
+    expect(painel.agenda).toMatchObject({
+      disponivel: true,
+      atendidas: 3,
+      digitalizadas: 2,
+      faturadas: 1,
+      semGuia: [{ paciente: 'Carla Sem Guia', data: '2026-09-12', servico: 'Consulta Cirurgia' }],
+      guiaSemAtendimento: [],
+    });
+  });
+});
+
+describe('hojeEmBrasilia', () => {
+  it('usa o fuso de Brasília, não o UTC', () => {
+    expect(hojeEmBrasilia(new Date('2026-10-03T02:30:00Z'))).toBe('2026-10-02');
+    expect(hojeEmBrasilia(new Date('2026-10-03T15:00:00Z'))).toBe('2026-10-03');
   });
 });
