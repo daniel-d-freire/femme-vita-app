@@ -45,3 +45,12 @@ describe('lerAgendaNinsaude', () => {
     expect(await lerAgendaNinsaude('R', '2026-09-01', '2026-09-30', buscar)).toEqual({ ok: false, motivo: 'o NinSaúde não respondeu' });
   });
 });
+
+describe('lerAgendaNinsaude com corpo da agenda quebrado', () => {
+  it('JSON inválido na agenda é formato inesperado', async () => {
+    const buscar = vi.fn(async (url: string) =>
+      url.includes('oauth2') ? json({ access_token: 'A' }) : new Response('{quebrado', { status: 200 }),
+    );
+    expect(await lerAgendaNinsaude('R', '2026-09-01', '2026-09-30', buscar)).toEqual({ ok: false, motivo: 'a agenda veio num formato inesperado' });
+  });
+});

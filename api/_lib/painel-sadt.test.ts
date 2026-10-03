@@ -258,3 +258,50 @@ describe('hojeEmBrasilia', () => {
     expect(hojeEmBrasilia(new Date('2026-10-03T15:00:00Z'))).toBe('2026-10-03');
   });
 });
+
+describe('montarPainel: duplicadas e campos nulos', () => {
+  const atendimento = {
+    id: 'x1',
+    data: '2026-09-10',
+    pacienteNome: 'Maria Exemplo Souza',
+    status: 3,
+    servicoDescricao: 'Consulta Cirurgia',
+    convenioId: 4,
+    convenioTitulo: 'MEDSENIOR',
+    convenioCarteira: null,
+  };
+
+  it('com duas cópias da guia, o atendimento casa com a faturada, não com a duplicada listada antes', () => {
+    const painel = montarPainel({
+      mes: '2026-09',
+      registros: [
+        { nome: 'a.json', conteudo: registro('Maria Exemplo Souza', '2026-09-10', 'p1') },
+        { nome: 'b.json', conteudo: registro('Maria Exemplo Souza', '2026-09-10', 'p2') },
+      ],
+      livro: livro({
+        'a.json': entrada('duplicada'),
+        'b.json': entrada('faturada', { guiaPortal: '3000002', valor: 82.02 }),
+      }),
+      pdfs: [],
+      agenda: { ok: true, itens: [atendimento] },
+      hoje: '2026-10-03',
+    });
+    expect(painel.agenda).toMatchObject({
+      disponivel: true,
+      digitalizadas: 1,
+      faturadas: 1,
+      guiaSemAtendimento: [{ chave: 'a.json' }],
+    });
+  });
+
+  it('registro com nomeNaGuia e carteira nulos continua legível', () => {
+    const painel = montarPainel({
+      mes: '2026-09',
+      registros: [{ nome: 'a.json', conteudo: { ...registro('Maria Exemplo Souza', '2026-09-10', 'p1'), nomeNaGuia: null, carteira: null } }],
+      livro: null,
+      pdfs: [],
+    });
+    expect(painel.guias).toHaveLength(1);
+    expect(painel.guias[0]?.status).toBe('falta_faturar');
+  });
+});

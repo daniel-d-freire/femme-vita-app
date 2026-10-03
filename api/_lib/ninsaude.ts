@@ -18,6 +18,8 @@ export async function lerAgendaNinsaude(
   buscar: Buscar = fetch,
 ): Promise<ResultadoAgenda> {
   if (!refreshToken) return { ok: false, motivo: 'token do NinSaúde não configurado' };
+  // Um prazo só para a chamada inteira (token + agenda + leitura do corpo).
+  const prazo = AbortSignal.timeout(TEMPO_MAXIMO_MS);
   try {
     const token = await buscar(URL_TOKEN, {
       method: 'POST',
@@ -27,7 +29,7 @@ export async function lerAgendaNinsaude(
         'X-Grant-Type': 'refresh_token',
       },
       body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
-      signal: AbortSignal.timeout(TEMPO_MAXIMO_MS),
+      signal: prazo,
     });
     if (!token.ok) return { ok: false, motivo: `o NinSaúde recusou o token (HTTP ${token.status})` };
     const acesso = ((await token.json().catch(() => ({}))) as { access_token?: string }).access_token;
@@ -35,10 +37,16 @@ export async function lerAgendaNinsaude(
 
     const agenda = await buscar(`${URL_AGENDA}?dataInicial=${inicio}&dataFinal=${fim}`, {
       headers: { Authorization: `bearer ${acesso}` },
-      signal: AbortSignal.timeout(TEMPO_MAXIMO_MS),
+      signal: prazo,
     });
     if (!agenda.ok) return { ok: false, motivo: `o NinSaúde recusou a leitura da agenda (HTTP ${agenda.status})` };
-    const corpo = (await agenda.json().catch(() => null)) as { result?: unknown } | null;
+    let corpo: { result?: unknown } | null;
+    try {
+      corpo = (await agenda.json()) as { result?: unknown } | null;
+    } catch {
+      if (prazo.aborted) return { ok: false, motivo: 'o NinSaúde não respondeu' };
+      return { ok: false, motivo: 'a agenda veio num formato inesperado' };
+    }
     if (!corpo || !Array.isArray(corpo.result)) return { ok: false, motivo: 'a agenda veio num formato inesperado' };
     return { ok: true, itens: corpo.result };
   } catch {

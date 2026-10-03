@@ -42,8 +42,8 @@ export type PainelSadt = {
 /** Só o que o painel usa do registro: leitura tolerante a campos novos. */
 const RegistroLeitura = z.object({
   paciente: z.string().min(1),
-  nomeNaGuia: z.string().optional(),
-  carteira: z.string().optional(),
+  nomeNaGuia: z.string().nullish(),
+  carteira: z.string().nullish(),
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   pdf: z.object({ id: z.string().min(1) }),
   digitalizadoPor: z.string().optional(),
@@ -171,7 +171,9 @@ export function montarPainel(entrada: {
   if (entrada.agenda && !entrada.agenda.ok) agenda = { disponivel: false, motivo: entrada.agenda.motivo };
   if (entrada.agenda?.ok) {
     const { atendidos, semBaixa } = separarAgenda(entrada.agenda.itens, entrada.mes, entrada.hoje ?? hojeEmBrasilia());
-    agenda = cruzarAgenda(atendidos, semBaixa, paraCruzar);
+    // Guia faturada primeiro: se o livro marcou uma cópia como duplicada, casa a que foi faturada.
+    const faturadasPrimeiro = [...paraCruzar].sort((a, b) => Number(b.faturada) - Number(a.faturada));
+    agenda = cruzarAgenda(atendidos, semBaixa, faturadasPrimeiro);
   }
 
   return {
