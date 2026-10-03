@@ -33,7 +33,7 @@ export type SemBaixa = { paciente: string; data: string; servico: string | null;
 export function normalizarNome(nome: string): string {
   return nome
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .replace(/-/g, ' ')
     .replace(/[^A-Z0-9\s]/g, '')
@@ -145,37 +145,37 @@ function mesmaPessoa(a: Atendimento, r: RegistroCruzamento): boolean {
 export function cruzarAgenda(atendidos: Atendimento[], semBaixa: SemBaixa[], registros: RegistroCruzamento[]): BlocoAgenda {
   const ordem = [...atendidos].sort((a, b) => Number(b.medsenior) - Number(a.medsenior) || a.data.localeCompare(b.data));
   const livres = new Set(registros.map((r) => r.chave));
-  const par = new Map<string, RegistroCruzamento>();
+  const par = new Map<Atendimento, RegistroCruzamento>();
 
   for (const a of ordem) {
     const r = registros.find((r) => livres.has(r.chave) && r.data === a.data && mesmaPessoa(a, r));
     if (r) {
-      par.set(a.id, r);
+      par.set(a, r);
       livres.delete(r.chave);
     }
   }
   const dataDiferente: BlocoAgenda['dataDiferente'] = [];
   for (const a of ordem) {
-    if (par.has(a.id)) continue;
+    if (par.has(a)) continue;
     const perto = registros
       .filter((r) => livres.has(r.chave) && distanciaEmDias(r.data, a.data) <= MAX_DIAS && mesmaPessoa(a, r))
       .sort((x, y) => distanciaEmDias(x.data, a.data) - distanciaEmDias(y.data, a.data))[0];
     if (perto) {
-      par.set(a.id, perto);
+      par.set(a, perto);
       livres.delete(perto.chave);
       dataDiferente.push({ chave: perto.chave, dataAgenda: a.data });
     }
   }
 
-  const contados = atendidos.filter((a) => a.medsenior || par.has(a.id));
-  const casados = contados.filter((a) => par.has(a.id));
+  const contados = atendidos.filter((a) => a.medsenior || par.has(a));
+  const casados = contados.filter((a) => par.has(a));
   return {
     disponivel: true,
     atendidas: contados.length,
     digitalizadas: casados.length,
-    faturadas: casados.filter((a) => par.get(a.id)?.faturada).length,
+    faturadas: casados.filter((a) => par.get(a)?.faturada).length,
     semGuia: atendidos
-      .filter((a) => a.medsenior && !par.has(a.id))
+      .filter((a) => a.medsenior && !par.has(a))
       .map((a) => ({ paciente: a.paciente, data: a.data, servico: a.servico })),
     semBaixa,
     guiaSemAtendimento: registros
@@ -183,7 +183,7 @@ export function cruzarAgenda(atendidos: Atendimento[], semBaixa: SemBaixa[], reg
       .sort((a, b) => a.data.localeCompare(b.data))
       .map((r) => ({ chave: r.chave, paciente: r.paciente, data: r.data })),
     convenioErrado: atendidos
-      .filter((a) => !a.medsenior && par.has(a.id))
+      .filter((a) => !a.medsenior && par.has(a))
       .map((a) => ({ paciente: a.paciente, data: a.data, convenio: a.convenio })),
     dataDiferente,
   };

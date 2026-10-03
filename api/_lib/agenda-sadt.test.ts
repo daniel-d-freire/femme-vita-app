@@ -165,6 +165,40 @@ describe('cruzarAgenda', () => {
     expect(b.convenioErrado).toEqual([{ paciente: 'Maria Exemplo Souza', data: '2026-09-10', convenio: null }]);
   });
 
+  it('casa só pelo nome lido na guia', () => {
+    const b = cruzarAgenda(
+      [atendido('Lucia Exemplo Prado', '2026-09-05')],
+      [],
+      [reg('a.json', 'Pasta Com Outro Nome', '2026-09-05', { nomeNaGuia: 'LUCIA EXEMPLO PRADO' })],
+    );
+    expect(b.digitalizadas).toBe(1);
+  });
+
+  it('MedSênior tem prioridade sobre outro convênio do mesmo nome no mesmo dia', () => {
+    const b = cruzarAgenda(
+      [
+        atendido('Maria Exemplo Souza', '2026-09-10', { medsenior: false, convenio: 'AMIL', id: 'amil' }),
+        atendido('Maria Exemplo Souza', '2026-09-10', { id: 'med' }),
+      ],
+      [],
+      [reg('a.json', 'Maria Exemplo Souza', '2026-09-10')],
+    );
+    expect(b.semGuia).toEqual([]);
+    expect(b.convenioErrado).toEqual([]);
+    expect(b.atendidas).toBe(1);
+    expect(b.digitalizadas).toBe(1);
+  });
+
+  it('entre guias a até 3 dias, a mais próxima vence', () => {
+    const b = cruzarAgenda(
+      [atendido('Rosa Teste Lima', '2026-09-10')],
+      [],
+      [reg('longe.json', 'Rosa Teste Lima', '2026-09-13'), reg('perto.json', 'Rosa Teste Lima', '2026-09-11')],
+    );
+    expect(b.dataDiferente).toEqual([{ chave: 'perto.json', dataAgenda: '2026-09-10' }]);
+    expect(b.guiaSemAtendimento.map((g) => g.chave)).toEqual(['longe.json']);
+  });
+
   it('repassa as consultas sem baixa', () => {
     const semBaixa = [{ paciente: 'Maria Exemplo Souza', data: '2026-09-29', servico: null, status: 'agendada' as const }];
     expect(cruzarAgenda([], semBaixa, []).semBaixa).toEqual(semBaixa);
