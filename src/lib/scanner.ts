@@ -101,17 +101,15 @@ export function clampCorners(c: Corners, width: number, height: number): Corners
 }
 
 /**
- * Detects the most prominent quadrilateral (the paper) in the image and
- * returns its 4 corners ordered as { topLeft, topRight, bottomRight, bottomLeft }.
- * Returns null when no convincing paper-like contour was found.
+ * Acha a folha na foto e devolve os 4 cantos { topLeft, topRight, bottomRight, bottomLeft }.
+ * Nunca devolve null: lado sem borda visível fica na beira da foto.
  */
 export async function detectPaperCorners(dataUrl: string): Promise<Corners | null> {
-  await loadOpenCV();
   const img = await loadImage(dataUrl);
   const fullW = img.naturalWidth;
   const fullH = img.naturalHeight;
 
-  // Detecta numa cópia pequena: Canny/contornos ficam rápidos e leves em memória.
+  // Detecta numa cópia pequena: rápido no celular.
   const fit = fitWithin(fullW, fullH, DETECT_MAX_DIMENSION);
   const small = document.createElement('canvas');
   small.width = fit.width;
@@ -119,120 +117,224 @@ export async function detectPaperCorners(dataUrl: string): Promise<Corners | nul
   const sctx = small.getContext('2d');
   if (!sctx) throw new Error('Não foi possível criar contexto 2D.');
   sctx.drawImage(img, 0, 0, fit.width, fit.height);
-  const srcMat: CvAny = cv.imread(small);
-
-  const gray: CvAny = new cv.Mat();
-  const edges: CvAny = new cv.Mat();
-  const blurred: CvAny = new cv.Mat();
-  const thresh: CvAny = new cv.Mat();
-  const contours: CvAny = new cv.MatVector();
-  const hierarchy: CvAny = new cv.Mat();
-
-  try {
-    cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-
-    // Candidato 1, pelas bordas: Canny com as falhas fechadas. Só contornos
-    // externos — os quadros impressos da guia ficam dentro da folha e não concorrem.
-    cv.Canny(blurred, edges, 30, 100);
-    const kernelBorda = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
-    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernelBorda);
-    cv.dilate(edges, edges, kernelBorda);
-    kernelBorda.delete();
-    const porBorda = maiorQuadrilateroExterno(edges, contours, hierarchy);
-
-    // Candidato 2, pelo claro: o papel é a região clara grande. Fecha o texto
-    // escuro para a folha virar uma mancha só.
-    cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
-    const kernelClaro = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(25, 25));
-    cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelClaro);
-    kernelClaro.delete();
-    const porClaro = maiorQuadrilateroExterno(thresh, contours, hierarchy);
-
-    const candidatos = [porBorda, porClaro].filter((c): c is CandidatoFolha => c !== null);
-    const folha = escolherFolha(candidatos, srcMat.cols * srcMat.rows);
-    if (!folha) return null;
-    // Volta para as coordenadas da imagem original.
-    return clampCorners(scaleCorners(ordenarCantos(folha.quad), 1 / fit.scale), fullW, fullH);
-  } finally {
-    srcMat.delete();
-    gray.delete();
-    edges.delete();
-    blurred.delete();
-    thresh.delete();
-    contours.delete();
-    hierarchy.delete();
+  const rgba = sctx.getImageData(0, 0, fit.width, fit.height).data;
+  const cinza = new Uint8Array(fit.width * fit.height);
+  for (let i = 0; i < cinza.length; i++) {
+    cinza[i] = (rgba[4 * i] * 299 + rgba[4 * i + 1] * 587 + rgba[4 * i + 2] * 114) / 1000;
   }
+  const cantos = acharFolha(cinza, fit.width, fit.height);
+  // Volta para as coordenadas da imagem original.
+  return clampCorners(scaleCorners(cantos, 1 / fit.scale), fullW, fullH);
 }
 
-export type CandidatoFolha = { quad: Point[]; area: number };
+/** Média 3×3: tira o grão da foto sem borrar a borda do papel. */
+function suavizar(px: Uint8Array, W: number, H: number): Uint8Array {
+  const out = new Uint8Array(px.length);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let soma = 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= H) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= W) continue;
+          soma += px[yy * W + xx];
+          n++;
+        }
+      }
+      out[y * W + x] = soma / n;
+    }
+  }
+  return out;
+}
 
-/** Abaixo disso o contorno não é a folha (é um quadro impresso, uma mancha). */
-const AREA_MINIMA_FOLHA = 0.2;
+// A guia é fotografada enchendo o quadro: a borda do papel fica perto da beira da
+// foto, numa margem branca antes da parte impressa. Cada lado é procurado só nessa faixa.
+const PROFUNDIDADE_BORDA = 0.25;
+/** Quanto o lado de dentro (papel) precisa ser mais claro que o de fora (mesa, sombra). */
+const DEGRAU_MINIMO = 20;
+/** Parte do comprimento do lado em que o degrau precisa aparecer. */
+const APOIO_MINIMO = 0.4;
+/**
+ * Fora do papel só há mesa. Se mais que esta parte dos pontos ao longo do lado
+ * tem tinta entre a reta e a beira, a reta está dentro da guia (uma faixa cinza,
+ * um quadro), não na borda.
+ */
+const TINTA_MAXIMA_FORA = 0.15;
+/** Traço de tinta: mais escuro que os vizinhos a 2 px, dos dois lados, por pelo menos isso. */
+const VALE_TINTA = 30;
+/**
+ * Tinta é traço sobre papel: os vizinhos têm de ser quase tão claros quanto o papel
+ * daquela linha. Rejunte e mancha de azulejo ficam sobre fundo mais escuro e não contam.
+ */
+const VIZINHO_DE_PAPEL = 20;
+
+type Lado = 'left' | 'right' | 'top' | 'bottom';
+type Reta = { p1: Point; p2: Point };
 
 /**
- * A folha contém todos os quadros impressos da guia, então entre os candidatos
- * plausíveis vale o maior. Errar para mais deixa um pouco de mesa; errar para
- * menos corta a guia — o que obrigava a ajustar os cantos à mão.
+ * Cantos da folha numa imagem em tons de cinza. Para cada lado,
+ * a borda é a reta mais externa onde o papel (dentro) é bem mais claro que o
+ * de fora e onde, para fora dela, não há tinta. Sem borda assim, o lado fica na
+ * beira da foto: errar para fora deixa um pouco de mesa, errar para dentro corta a guia.
  */
-export function escolherFolha(candidatos: CandidatoFolha[], areaImagem: number): CandidatoFolha | null {
-  let melhor: CandidatoFolha | null = null;
-  for (const c of candidatos) {
-    if (c.area < areaImagem * AREA_MINIMA_FOLHA) continue;
-    if (!melhor || c.area > melhor.area) melhor = c;
-  }
-  return melhor;
-}
-
-/** Quatro pontos soltos → cantos: menor x+y é o superior esquerdo, maior é o inferior direito; y−x separa os outros dois. */
-export function ordenarCantos(pontos: Point[]): Corners {
-  const porSoma = [...pontos].sort((a, b) => a.x + a.y - (b.x + b.y));
-  const porDiferenca = [...pontos].sort((a, b) => a.y - a.x - (b.y - b.x));
+export function acharFolha(cinza: Uint8Array, W: number, H: number): Corners {
+  // Degrau na imagem suavizada; tinta na original (a média 3×3 apaga letra pequena).
+  const suave = suavizar(cinza, W, H);
+  const topo = bordaDoLado(suave, cinza, W, H, 'top');
+  const base = bordaDoLado(suave, cinza, W, H, 'bottom');
+  const esq = bordaDoLado(suave, cinza, W, H, 'left');
+  const dir = bordaDoLado(suave, cinza, W, H, 'right');
   return {
-    topLeft: porSoma[0],
-    topRight: porDiferenca[0],
-    bottomRight: porSoma[porSoma.length - 1],
-    bottomLeft: porDiferenca[porDiferenca.length - 1],
+    topLeft: cruzamento(topo, esq),
+    topRight: cruzamento(topo, dir),
+    bottomRight: cruzamento(base, dir),
+    bottomLeft: cruzamento(base, esq),
   };
 }
 
-/** Maior contorno externo da imagem binária, reduzido a um quadrilátero pelo casco convexo. */
-function maiorQuadrilateroExterno(binaria: CvAny, contours: CvAny, hierarchy: CvAny): CandidatoFolha | null {
-  cv.findContours(binaria, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  let maior = -1;
-  let maiorArea = 0;
-  for (let i = 0; i < contours.size(); i++) {
-    const area = cv.contourArea(contours.get(i));
-    if (area > maiorArea) {
-      maiorArea = area;
-      maior = i;
-    }
-  }
-  if (maior < 0) return null;
+function cruzamento(r: Reta, s: Reta): Point {
+  const { x: x1, y: y1 } = r.p1;
+  const { x: x2, y: y2 } = r.p2;
+  const { x: x3, y: y3 } = s.p1;
+  const { x: x4, y: y4 } = s.p2;
+  const d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+  return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
+}
 
-  const casco: CvAny = new cv.Mat();
-  try {
-    cv.convexHull(contours.get(maior), casco, false, true);
-    const area = cv.contourArea(casco);
-    const perimetro = cv.arcLength(casco, true);
-    // Simplifica o casco até sobrarem 4 vértices; sem isso, o retângulo mínimo.
-    for (const tolerancia of [0.02, 0.03, 0.05, 0.08]) {
-      const aprox: CvAny = new cv.Mat();
-      try {
-        cv.approxPolyDP(casco, aprox, tolerancia * perimetro, true);
-        if (aprox.rows === 4) {
-          const d: Int32Array = aprox.data32S;
-          return { quad: [0, 1, 2, 3].map((k) => ({ x: d[2 * k], y: d[2 * k + 1] })), area };
+/**
+ * Procura a borda de um lado. "u" anda da beira da foto para dentro e "v" corre
+ * ao longo do lado; a reta candidata vai de u=a (em v=0) a u=b (em v=fim).
+ */
+function bordaDoLado(cinza: Uint8Array, original: Uint8Array, W: number, H: number, lado: Lado): Reta {
+  const horizontal = lado === 'top' || lado === 'bottom';
+  const U = horizontal ? H : W;
+  const V = horizontal ? W : H;
+  const pixel = (u: number, v: number): number => {
+    switch (lado) {
+      case 'left': return v * W + u;
+      case 'right': return v * W + (W - 1 - u);
+      case 'top': return u * W + v;
+      case 'bottom': return (H - 1 - u) * W + v;
+    }
+  };
+  const ponto = (u: number, v: number): Point => {
+    switch (lado) {
+      case 'left': return { x: u, y: v };
+      case 'right': return { x: W - 1 - u, y: v };
+      case 'top': return { x: v, y: u };
+      case 'bottom': return { x: v, y: H - 1 - u };
+    }
+  };
+  const naBeira: Reta = { p1: ponto(0, 0), p2: ponto(0, V - 1) };
+
+  const minU = 8;
+  const D = Math.floor(U * PROFUNDIDADE_BORDA);
+  if (D <= minU) return naBeira;
+  const colunas = D + 3;
+  const amostras: number[] = [];
+  for (let v = 3; v < V - 3; v += 3) amostras.push(v);
+  const n = amostras.length;
+
+  // degrau[j][u]: no ponto (u, amostra j) o lado de dentro é mais claro que o de fora.
+  // forca[j][u]: o salto de brilho bem em u (é máximo exatamente na borda).
+  // tinta[j][u]: quantos traços de tinta há entre a beira e u, na amostra j.
+  const degrau = new Uint8Array(n * colunas);
+  const forca = new Int16Array(n * colunas);
+  const tinta = new Uint16Array(n * colunas);
+  for (let j = 0; j < n; j++) {
+    const v = amostras[j];
+    // Brilho do papel nesta linha: o mais claro da faixa (o papel é o mais claro da foto).
+    let papel = 0;
+    for (let u = 0; u < colunas && u < U; u++) papel = Math.max(papel, cinza[pixel(u, v)]);
+    const claro = papel - VIZINHO_DE_PAPEL;
+    let acumulado = 0;
+    for (let u = 0; u < colunas; u++) {
+      tinta[j * colunas + u] = acumulado;
+      // Olha as 3 linhas em volta da amostra: traço fino não pode passar entre amostras.
+      if (u >= 2 && u + 2 < U) {
+        for (let dv = -1; dv <= 1; dv++) {
+          const vv = v + dv;
+          const c = original[pixel(u, vv)];
+          const ladosU = Math.min(original[pixel(u - 2, vv)], original[pixel(u + 2, vv)]);
+          const ladosV = Math.min(original[pixel(u, vv - 2)], original[pixel(u, vv + 2)]);
+          if ((c + VALE_TINTA < ladosU && ladosU >= claro) || (c + VALE_TINTA < ladosV && ladosV >= claro)) {
+            acumulado++;
+            break;
+          }
         }
-      } finally {
-        aprox.delete();
+      }
+      if (u >= minU && u + 8 < U) {
+        let fora = 0;
+        let dentro = 0;
+        for (let d = 3; d <= 8; d++) {
+          fora += cinza[pixel(u - d, v)];
+          dentro += cinza[pixel(u + d, v)];
+        }
+        if (dentro - fora >= DEGRAU_MINIMO * 6) degrau[j * colunas + u] = 1;
+        forca[j * colunas + u] = cinza[pixel(u + 2, v)] - cinza[pixel(u - 2, v)];
       }
     }
-    const vertices: Point[] = cv.RotatedRect.points(cv.minAreaRect(casco));
-    return { quad: vertices.map((p) => ({ x: p.x, y: p.y })), area };
-  } finally {
-    casco.delete();
   }
+
+  const uNa = (a: number, b: number, j: number) => Math.round(a + ((b - a) * amostras[j]) / V);
+  const apoio = (a: number, b: number): number => {
+    let s = 0;
+    for (let j = 0; j < n; j++) s += degrau[j * colunas + uNa(a, b, j)];
+    return s / n;
+  };
+  const forcaTotal = (a: number, b: number): number => {
+    let s = 0;
+    for (let j = 0; j < n; j++) s += forca[j * colunas + uNa(a, b, j)];
+    return s;
+  };
+  // Parte dos pontos ao longo do lado com tinta entre a reta e a beira.
+  const tintaFora = (a: number, b: number): number => {
+    let comTinta = 0;
+    for (let j = 0; j < n; j++) if (tinta[j * colunas + uNa(a, b, j)] > 0) comTinta++;
+    return comTinta / n;
+  };
+
+  type Candidata = { a: number; b: number; apoio: number };
+  const candidatas: Candidata[] = [];
+  for (let a = minU; a <= D; a += 2) {
+    for (let b = minU; b <= D; b += 2) {
+      const ap = apoio(a, b);
+      if (ap >= APOIO_MINIMO && tintaFora(a, b) <= TINTA_MAXIMA_FORA) candidatas.push({ a, b, apoio: ap });
+    }
+  }
+  if (!candidatas.length) return naBeira;
+
+  // A borda é a mais externa. O teste de degrau aceita retas até uns 8 px antes
+  // dela, então, nesse grupo mais externo, vale a reta com o maior salto de brilho.
+  const meio = (c: Candidata) => (c.a + c.b) / 2;
+  const maisExterna = Math.min(...candidatas.map(meio));
+  let melhor = candidatas[0];
+  let melhorForca = -Infinity;
+  for (const c of candidatas) {
+    if (meio(c) > maisExterna + 10) continue;
+    const f = forcaTotal(c.a, c.b);
+    if (f > melhorForca) {
+      melhor = c;
+      melhorForca = f;
+    }
+  }
+  // Ajuste fino de 1 px em volta da melhor.
+  const grossa = melhor;
+  for (let a = grossa.a - 1; a <= grossa.a + 1; a++) {
+    for (let b = grossa.b - 1; b <= grossa.b + 1; b++) {
+      if (a < minU || b < minU || a > D || b > D) continue;
+      const f = forcaTotal(a, b);
+      if (f > melhorForca && apoio(a, b) >= APOIO_MINIMO && tintaFora(a, b) <= TINTA_MAXIMA_FORA) {
+        melhor = { a, b, apoio: apoio(a, b) };
+        melhorForca = f;
+      }
+    }
+  }
+  return { p1: ponto(melhor.a, 0), p2: ponto(melhor.b, V - 1) };
 }
 
 export type FilterKind = 'bw' | 'gray' | 'color';
