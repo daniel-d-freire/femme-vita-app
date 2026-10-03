@@ -22,6 +22,8 @@ import {
 } from '../lib/painel';
 import { isoParaDataBr } from '../lib/sadt';
 
+const diaMes = (iso: string) => isoParaDataBr(iso).slice(0, 5);
+
 type Estado =
   | { kind: 'carregando' }
   | { kind: 'pronto'; painel: PainelSadt }
@@ -251,14 +253,14 @@ function ConferenciaAgenda({ agenda }: { agenda: AgendaPainel }) {
         ponto="bg-danger"
         texto="text-danger"
         explica="Atendimento MedSênior com baixa no Apolo e nenhuma guia digitalizada. Digitalize a guia desta paciente."
-        linhas={agenda.semGuia.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: a.servico ?? '' }))}
+        linhas={agenda.semGuia.map((a, i) => ({ chave: `${a.paciente}-${a.data}-${i}`, data: a.data, nome: a.paciente, detalhe: a.servico ?? '' }))}
       />
       <ListaAgenda
         rotulo="Sem baixa no Apolo"
         ponto="bg-amber"
         texto="text-amber-600"
         explica="Consulta MedSênior que já passou e continua agendada ou confirmada. Dê baixa (atendida ou falta) no Apolo."
-        linhas={agenda.semBaixa.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: [a.status, a.servico].filter(Boolean).join(' · ') }))}
+        linhas={agenda.semBaixa.map((a, i) => ({ chave: `${a.paciente}-${a.data}-${i}`, data: a.data, nome: a.paciente, detalhe: [a.status, a.servico].filter(Boolean).join(' · ') }))}
       />
       <ListaAgenda
         rotulo="Guia sem atendimento na agenda"
@@ -272,7 +274,7 @@ function ConferenciaAgenda({ agenda }: { agenda: AgendaPainel }) {
         ponto="bg-amber"
         texto="text-amber-600"
         explica="Tem guia MedSênior, mas no Apolo a consulta está com outro convênio ou sem convênio. Corrija o cadastro da consulta."
-        linhas={agenda.convenioErrado.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: a.convenio ?? 'sem convênio' }))}
+        linhas={agenda.convenioErrado.map((a, i) => ({ chave: `${a.paciente}-${a.data}-${i}`, data: a.data, nome: a.paciente, detalhe: a.convenio ?? 'sem convênio' }))}
       />
     </>
   );
@@ -300,7 +302,7 @@ function ListaAgenda({
       <ul className="mt-3 rounded-2xl border border-navy/8 bg-bone-50 px-4 shadow-soft">
         {linhas.map((l) => (
           <li key={l.chave} className="grid grid-cols-[3rem_minmax(0,1fr)] items-baseline gap-3 border-t border-navy/8 py-3 first:border-t-0">
-            <span className="font-mono text-[12px] tabular-nums text-navy/50">{l.data ? isoParaDataBr(l.data).slice(0, 5) : '—'}</span>
+            <span className="font-mono text-[12px] tabular-nums text-navy/50">{l.data ? diaMes(l.data) : '—'}</span>
             <div className="min-w-0">
               <p className="truncate font-serif text-lg leading-snug text-navy">{l.nome}</p>
               {l.detalhe && <p className="mt-0.5 break-words text-[13px] leading-snug text-navy/60">{l.detalhe}</p>}
@@ -380,14 +382,14 @@ function LinhaGuia({ guia, dataAgenda }: { guia: GuiaPainel; dataAgenda?: string
   return (
     <li className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-baseline gap-3 border-t border-navy/8 py-3 first:border-t-0">
       <span className="font-mono text-[12px] tabular-nums text-navy/50">
-        {guia.data ? isoParaDataBr(guia.data).slice(0, 5) : '—'}
+        {guia.data ? diaMes(guia.data) : '—'}
       </span>
       <div className="min-w-0">
         <p className="truncate font-serif text-lg leading-snug text-navy">{guia.paciente}</p>
         <p className="mt-0.5 break-words text-[13px] leading-snug text-navy/60">{detalheDaGuia(guia)}</p>
         {dataAgenda && (
           <p className="mt-0.5 text-[13px] leading-snug text-amber-600">
-            Na agenda do Apolo a consulta é de {isoParaDataBr(dataAgenda).slice(0, 5)}: confira a data da guia.
+            Na agenda do Apolo a consulta é de {diaMes(dataAgenda)}: confira a data da guia.
           </p>
         )}
       </div>
