@@ -1,6 +1,6 @@
 // src/lib/painel.test.ts
 import { describe, expect, it } from 'vitest';
-import { comandoRobo, deslocarMes, detalheDaGuia, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type GuiaPainel } from './painel';
+import { agendaCompleta, comandoRobo, deslocarMes, detalheDaGuia, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type AgendaPainel, type GuiaPainel } from './painel';
 
 function guia(data: string | null, status: GuiaPainel['status'] = 'faturada'): GuiaPainel {
   return { chave: `${data}.json`, paciente: 'X', data, status, guiaPortal: null, valor: null, motivo: null, pdfId: null, digitalizadoPor: null };
@@ -78,5 +78,20 @@ describe('detalheDaGuia', () => {
 describe('formatarMoeda', () => {
   it('real com vírgula e milhar', () => {
     expect(formatarMoeda(1476.36)).toMatch(/^R\$\s1\.476,36$/);
+  });
+});
+
+describe('agendaCompleta', () => {
+  const base: AgendaPainel = {
+    disponivel: true, atendidas: 2, digitalizadas: 2, faturadas: 2,
+    semGuia: [], semBaixa: [], guiaSemAtendimento: [], convenioErrado: [], dataDiferente: [],
+  };
+  it('verde só com tudo digitalizado e faturado, sem baixa pendente nem guia solta', () => {
+    expect(agendaCompleta(base)).toBe(true);
+    expect(agendaCompleta({ ...base, faturadas: 1 })).toBe(false);
+    expect(agendaCompleta({ ...base, semBaixa: [{ paciente: 'X Y Z', data: '2026-09-01', servico: null, status: 'agendada' }] })).toBe(false);
+    expect(agendaCompleta({ ...base, guiaSemAtendimento: [{ chave: 'a.json', paciente: 'X Y Z', data: '2026-09-01' }] })).toBe(false);
+    expect(agendaCompleta({ ...base, atendidas: 0, digitalizadas: 0, faturadas: 0 })).toBe(false);
+    expect(agendaCompleta({ disponivel: false, motivo: 'x' })).toBe(false);
   });
 });

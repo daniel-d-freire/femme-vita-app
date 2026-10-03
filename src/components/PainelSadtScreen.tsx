@@ -4,6 +4,7 @@ import { Logo } from './Logo';
 import { ApiError } from '../lib/api';
 import { guardarDestino } from '../lib/destino';
 import {
+  agendaCompleta,
   buscarPainel,
   comandoRobo,
   deslocarMes,
@@ -14,6 +15,7 @@ import {
   guiasPorDia,
   mesAnterior,
   rotuloMes,
+  type AgendaPainel,
   type GuiaPainel,
   type PainelSadt,
   type StatusPainel,
@@ -155,6 +157,7 @@ function BotaoMes({ rotulo, onClick, children }: { rotulo: string; onClick: () =
 function Conteudo({ painel, onRecarregar }: { painel: PainelSadt; onRecarregar: () => void }) {
   const { totais } = painel;
   const vazio = painel.guias.length === 0 && painel.pdfsSemRegistro.length === 0;
+  const dataNaAgenda = new Map(painel.agenda.disponivel ? painel.agenda.dataDiferente.map((d) => [d.chave, d.dataAgenda]) : []);
 
   return (
     <>
@@ -164,6 +167,8 @@ function Conteudo({ painel, onRecarregar }: { painel: PainelSadt; onRecarregar: 
         <Total rotulo="Falta faturar" valor={totais.faltaFaturar} />
         <Total rotulo="Pedem atenção" valor={totais.atencao} tom={totais.atencao > 0 ? 'text-danger' : undefined} />
       </dl>
+
+      <ConferenciaAgenda agenda={painel.agenda} />
 
       {!vazio && <Regua mes={painel.mes} guias={painel.guias} />}
 
@@ -206,7 +211,7 @@ function Conteudo({ painel, onRecarregar }: { painel: PainelSadt; onRecarregar: 
             </CabecalhoSecao>
             <ul className="mt-3 rounded-2xl border border-navy/8 bg-bone-50 px-4 shadow-soft">
               {guias.map((guia) => (
-                <LinhaGuia key={guia.chave} guia={guia} />
+                <LinhaGuia key={guia.chave} guia={guia} dataAgenda={dataNaAgenda.get(guia.chave)} />
               ))}
             </ul>
           </section>
@@ -215,6 +220,95 @@ function Conteudo({ painel, onRecarregar }: { painel: PainelSadt; onRecarregar: 
 
       <Robo painel={painel} onRecarregar={onRecarregar} />
     </>
+  );
+}
+
+/** Placar contra a agenda do Apolo e o que falta para fechar 100% do mês. */
+function ConferenciaAgenda({ agenda }: { agenda: AgendaPainel }) {
+  if (!agenda.disponivel) {
+    return (
+      <p className="mt-4 font-mono text-[11px] leading-relaxed text-navy/45">
+        Conferência com a agenda do Apolo indisponível: {agenda.motivo}.
+      </p>
+    );
+  }
+  const completo = agendaCompleta(agenda);
+  return (
+    <>
+      <section
+        aria-label="Conferência com a agenda do Apolo"
+        className={`mt-4 rounded-2xl border p-4 shadow-soft animate-slide-in ${completo ? 'border-success/40 bg-success/8' : 'border-navy/10 bg-bone-50'}`}
+      >
+        <p className="font-mono text-[10px] tracking-[0.2em] uppercase text-navy/45">Agenda do Apolo</p>
+        <p className={`mt-1 font-serif text-xl leading-snug ${completo ? 'text-success' : 'text-navy'}`}>
+          {agenda.atendidas} atendida{agenda.atendidas === 1 ? '' : 's'} · digitalizadas {agenda.digitalizadas} de {agenda.atendidas} · faturadas {agenda.faturadas} de {agenda.atendidas}
+        </p>
+        {completo && <p className="mt-1 text-[13px] text-success">Mês completo: todo atendimento MedSênior tem guia faturada.</p>}
+      </section>
+
+      <ListaAgenda
+        rotulo="Atendida sem guia"
+        ponto="bg-danger"
+        texto="text-danger"
+        explica="Atendimento MedSênior com baixa no Apolo e nenhuma guia digitalizada. Digitalize a guia desta paciente."
+        linhas={agenda.semGuia.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: a.servico ?? '' }))}
+      />
+      <ListaAgenda
+        rotulo="Sem baixa no Apolo"
+        ponto="bg-amber"
+        texto="text-amber-600"
+        explica="Consulta MedSênior que já passou e continua agendada ou confirmada. Dê baixa (atendida ou falta) no Apolo."
+        linhas={agenda.semBaixa.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: [a.status, a.servico].filter(Boolean).join(' · ') }))}
+      />
+      <ListaAgenda
+        rotulo="Guia sem atendimento na agenda"
+        ponto="bg-amber"
+        texto="text-amber-600"
+        explica="Guia digitalizada sem consulta atendida da paciente perto dessa data no Apolo. Confira a data da guia ou a agenda."
+        linhas={agenda.guiaSemAtendimento.map((g) => ({ chave: g.chave, data: g.data, nome: g.paciente, detalhe: '' }))}
+      />
+      <ListaAgenda
+        rotulo="Convênio errado no Apolo"
+        ponto="bg-amber"
+        texto="text-amber-600"
+        explica="Tem guia MedSênior, mas no Apolo a consulta está com outro convênio ou sem convênio. Corrija o cadastro da consulta."
+        linhas={agenda.convenioErrado.map((a) => ({ chave: `${a.paciente}-${a.data}`, data: a.data, nome: a.paciente, detalhe: a.convenio ?? 'sem convênio' }))}
+      />
+    </>
+  );
+}
+
+function ListaAgenda({
+  rotulo,
+  ponto,
+  texto,
+  explica,
+  linhas,
+}: {
+  rotulo: string;
+  ponto: string;
+  texto: string;
+  explica: string;
+  linhas: { chave: string; data: string | null; nome: string; detalhe: string }[];
+}) {
+  if (linhas.length === 0) return null;
+  return (
+    <section className="mt-10 animate-slide-in">
+      <CabecalhoSecao ponto={ponto} texto={texto} rotulo={rotulo} quantidade={linhas.length}>
+        {explica}
+      </CabecalhoSecao>
+      <ul className="mt-3 rounded-2xl border border-navy/8 bg-bone-50 px-4 shadow-soft">
+        {linhas.map((l) => (
+          <li key={l.chave} className="grid grid-cols-[3rem_minmax(0,1fr)] items-baseline gap-3 border-t border-navy/8 py-3 first:border-t-0">
+            <span className="font-mono text-[12px] tabular-nums text-navy/50">{l.data ? isoParaDataBr(l.data).slice(0, 5) : '—'}</span>
+            <div className="min-w-0">
+              <p className="truncate font-serif text-lg leading-snug text-navy">{l.nome}</p>
+              {l.detalhe && <p className="mt-0.5 break-words text-[13px] leading-snug text-navy/60">{l.detalhe}</p>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -282,7 +376,7 @@ function CabecalhoSecao({
   );
 }
 
-function LinhaGuia({ guia }: { guia: GuiaPainel }) {
+function LinhaGuia({ guia, dataAgenda }: { guia: GuiaPainel; dataAgenda?: string }) {
   return (
     <li className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-baseline gap-3 border-t border-navy/8 py-3 first:border-t-0">
       <span className="font-mono text-[12px] tabular-nums text-navy/50">
@@ -291,6 +385,11 @@ function LinhaGuia({ guia }: { guia: GuiaPainel }) {
       <div className="min-w-0">
         <p className="truncate font-serif text-lg leading-snug text-navy">{guia.paciente}</p>
         <p className="mt-0.5 break-words text-[13px] leading-snug text-navy/60">{detalheDaGuia(guia)}</p>
+        {dataAgenda && (
+          <p className="mt-0.5 text-[13px] leading-snug text-amber-600">
+            Na agenda do Apolo a consulta é de {isoParaDataBr(dataAgenda).slice(0, 5)}: confira a data da guia.
+          </p>
+        )}
       </div>
       {guia.pdfId ? <LinkPdf href={`https://drive.google.com/file/d/${guia.pdfId}/view`} /> : <span />}
     </li>

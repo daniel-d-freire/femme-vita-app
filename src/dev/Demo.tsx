@@ -46,6 +46,17 @@ const PAINEL: PainelSadt = {
   pdfsSemRegistro: [{ id: 'p9', nome: 'Guia_SADT_Fabiana Teste_2026.09.18.pdf', link: 'https://drive.google.com' }],
   ultimaExecucao: { inicio: '2026-10-03T13:00:00.000Z', fim: '2026-10-03T13:06:00.000Z', dryRun: false, resumo: '2 faturadas, 1 pendência, 1 para conferir no portal' },
   avisoLivro: null,
+  agenda: {
+    disponivel: true,
+    atendidas: 8,
+    digitalizadas: 6,
+    faturadas: 2,
+    semGuia: [{ paciente: 'Gabriela Inventada Rocha', data: '2026-09-03', servico: 'Retorno Histeroscopia' }],
+    semBaixa: [{ paciente: 'Helena Exemplo Dias', data: '2026-09-29', servico: 'Consulta rotina', status: 'confirmada' }],
+    guiaSemAtendimento: [],
+    convenioErrado: [{ paciente: 'Carla Demonstração Reis', data: '2026-09-15', convenio: null }],
+    dataDiferente: [{ chave: 'c.json', dataAgenda: '2026-09-08' }],
+  },
   totais: { digitalizadas: 6, faturadas: 2, valorFaturado: 164.04, faltaFaturar: 1, atencao: 3, duplicadas: 1 },
 };
 
@@ -117,13 +128,23 @@ export default function Demo({ nome }: { nome: string }) {
       return (
         <PainelSadtScreen
           mesInicial="2026-08"
-          carregar={async (mes) => ({ ...PAINEL, mes, guias: [], pdfsSemRegistro: [], ultimaExecucao: null, totais: { digitalizadas: 0, faturadas: 0, valorFaturado: 0, faltaFaturar: 0, atencao: 0, duplicadas: 0 } })}
+          carregar={async (mes) => ({ ...PAINEL, mes, guias: [], pdfsSemRegistro: [], ultimaExecucao: null, totais: { digitalizadas: 0, faturadas: 0, valorFaturado: 0, faltaFaturar: 0, atencao: 0, duplicadas: 0 }, agenda: { disponivel: false, motivo: 'token do NinSaúde não configurado' } })}
+        />
+      );
+    case 'painel-sadt-completo':
+      return (
+        <PainelSadtScreen
+          mesInicial="2026-09"
+          carregar={async () => ({
+            ...PAINEL,
+            agenda: { disponivel: true, atendidas: 6, digitalizadas: 6, faturadas: 6, semGuia: [], semBaixa: [], guiaSemAtendimento: [], convenioErrado: [], dataDiferente: [] },
+          })}
         />
       );
     default:
       return (
         <p style={{ padding: 24, fontFamily: 'monospace' }}>
-          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo, painel-sadt, painel-sadt-vazio
+          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo, painel-sadt, painel-sadt-completo, painel-sadt-vazio
         </p>
       );
   }

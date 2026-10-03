@@ -16,12 +16,27 @@ export type GuiaPainel = {
   digitalizadoPor: string | null;
 };
 
+export type AgendaPainel =
+  | { disponivel: false; motivo: string }
+  | {
+      disponivel: true;
+      atendidas: number;
+      digitalizadas: number;
+      faturadas: number;
+      semGuia: { paciente: string; data: string; servico: string | null }[];
+      semBaixa: { paciente: string; data: string; servico: string | null; status: 'agendada' | 'confirmada' }[];
+      guiaSemAtendimento: { chave: string; paciente: string; data: string | null }[];
+      convenioErrado: { paciente: string; data: string; convenio: string | null }[];
+      dataDiferente: { chave: string; dataAgenda: string }[];
+    };
+
 export type PainelSadt = {
   mes: string;
   guias: GuiaPainel[];
   pdfsSemRegistro: { id: string; nome: string; link: string | null }[];
   ultimaExecucao: { inicio: string; fim: string; dryRun: boolean; resumo: string } | null;
   avisoLivro: string | null;
+  agenda: AgendaPainel;
   totais: {
     digitalizadas: number;
     faturadas: number;
@@ -119,4 +134,15 @@ export function detalheDaGuia(guia: GuiaPainel): string {
   if (!numero) return motivo;
   if (!motivo) return `guia ${numero}`;
   return motivo.includes(numero) ? motivo : `guia ${numero} · ${motivo}`;
+}
+
+/** Placar verde: todo atendimento do mês digitalizado e faturado, sem nada solto. */
+export function agendaCompleta(agenda: AgendaPainel): boolean {
+  if (!agenda.disponivel || agenda.atendidas === 0) return false;
+  return (
+    agenda.digitalizadas === agenda.atendidas &&
+    agenda.faturadas === agenda.atendidas &&
+    agenda.semBaixa.length === 0 &&
+    agenda.guiaSemAtendimento.length === 0
+  );
 }
