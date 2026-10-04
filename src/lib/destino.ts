@@ -1,10 +1,10 @@
 // src/lib/destino.ts
 // O retorno do login Google (api/auth/google.ts) sempre cai em "/". Para quem
-// entrou por um card do Hub (?modo=sadt, ?tela=faturamento-sadt) não perder o
+// entrou por um card do Hub (?modo=sadt, ?tela=faturamento-sadt, ?tela=anexos) não perder o
 // caminho, a busca é guardada antes do login e restaurada antes do React montar.
 
 const CHAVE = 'fv_destino';
-const CONHECIDOS = new Set(['?modo=sadt', '?tela=faturamento-sadt']);
+const CONHECIDOS = new Set(['?modo=sadt', '?tela=faturamento-sadt', '?tela=anexos']);
 
 export function guardarDestino(search: string, armazenamento: Pick<Storage, 'setItem'> = sessionStorage): void {
   if (!search) return;

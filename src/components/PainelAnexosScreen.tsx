@@ -71,7 +71,11 @@ export function PainelAnexosScreen({ carregar = buscarPainelAnexos, mesInicial }
         if (cancelado) return;
         const sessao = erro instanceof ApiError && erro.status === 401;
         const mensagem =
-          erro instanceof ApiError ? erro.body.message || erro.body.error : erro instanceof Error ? erro.message : 'Erro ao carregar.';
+          erro instanceof ApiError
+            ? erro.body.message || (sessao ? 'Sua sessão expirou.' : erro.body.error)
+            : erro instanceof Error
+              ? erro.message
+              : 'Erro ao carregar.';
         setEstado({ kind: 'erro', mensagem, sessao });
       }
     );
@@ -173,7 +177,7 @@ function LinhaConta({ conta, mes }: { conta: ContaPainel; mes: string }) {
       <p className="truncate font-serif text-lg leading-snug text-navy">{conta.paciente}</p>
       <p className="mt-0.5 break-words text-[13px] leading-snug text-navy/60">{detalheDaConta(conta)}</p>
       {conta.nota && <p className="mt-0.5 text-[12px] leading-snug text-navy/45">{conta.nota}</p>}
-      {conta.status === 'conferir' && (
+      {conta.status === 'conferir' && /^\d+$/.test(conta.conta) && (
         <p className="mt-1 break-all font-mono text-[11px] leading-snug text-amber-600">
           Se NÃO estiver no portal: {comandoReenvio(mes, conta.conta)}
         </p>
@@ -194,8 +198,16 @@ function Robo({ painel, onRecarregar }: { painel: PainelAnexos; onRecarregar: ()
           documentos de cada conta sem anexar nada. Se o plano estiver certo, rode o de verdade.
         </p>
       </div>
-      <Comando rotulo="Ensaio" texto={comandoAnexos(painel.mes, true)} />
-      <Comando rotulo="Anexar" texto={comandoAnexos(painel.mes, false)} />
+      {painel.aviso ? (
+        <p className="border-b border-bone/10 px-5 py-3 font-mono text-[11px] text-bone/50">
+          Comandos escondidos até o registro ser conferido.
+        </p>
+      ) : (
+        <>
+          <Comando rotulo="Ensaio" texto={comandoAnexos(painel.mes, true)} />
+          <Comando rotulo="Anexar" texto={comandoAnexos(painel.mes, false)} />
+        </>
+      )}
       <div className="flex items-center justify-between gap-3 px-5 py-4">
         <p className="font-mono text-[11px] leading-relaxed text-bone/50">
           {ultima

@@ -30,4 +30,8 @@ describe('textos', () => {
     expect(detalheDaConta(conta({ status: 'nao_enviada', arquivos: [] }))).toBe('Conta 12345678 · SADT · ainda não passou pelo robô');
     expect(detalheDaConta(conta({ status: 'conferir', arquivos: ['a.pdf', 'b.pdf'] }))).toBe('Conta 12345678 · SADT · a.pdf · b.pdf');
   });
+  it('pendência sem motivo e anexada sem arquivos', () => {
+    expect(detalheDaConta(conta({ status: 'pendencia', motivo: null }))).toBe('Conta 12345678 · SADT · sem motivo registrado');
+    expect(detalheDaConta(conta({ status: 'anexada', arquivos: [] }))).toBe('Conta 12345678 · SADT');
+  });
 });

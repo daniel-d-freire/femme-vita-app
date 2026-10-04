@@ -24,9 +24,10 @@ describe('guardarDestino', () => {
 });
 
 describe('destinoParaRestaurar', () => {
-  it('restaura os dois destinos conhecidos quando o login voltou para "/"', () => {
+  it('restaura os destinos conhecidos quando o login voltou para "/"', () => {
     expect(destinoParaRestaurar('', '?modo=sadt')).toBe('?modo=sadt');
     expect(destinoParaRestaurar('', '?tela=faturamento-sadt')).toBe('?tela=faturamento-sadt');
+    expect(destinoParaRestaurar('', '?tela=anexos')).toBe('?tela=anexos');
   });
   it('não mexe numa página que já tem busca', () => {
     expect(destinoParaRestaurar('?modo=sadt', '?tela=faturamento-sadt')).toBeNull();
