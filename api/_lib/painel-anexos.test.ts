@@ -55,6 +55,56 @@ describe('montarPainelAnexos', () => {
     expect(p.contas[0]?.nota).toBe('anexada à mão');
   });
 
+  it('nota null, não-string ou ausente vira null e o registro é aceito', () => {
+    const p = montarPainelAnexos({
+      mes: '2026-11',
+      registros: [
+        registro({
+          '1': entrada('anexada', { paciente: 'ANA', nota: null }),
+          '2': entrada('anexada', { paciente: 'BIA', nota: 5 }),
+          '3': entrada('anexada', { paciente: 'CIDA' }),
+        }),
+      ],
+    });
+    expect(p.aviso).toBeNull();
+    expect(p.contas.map((c) => c.nota)).toEqual([null, null, null]);
+  });
+
+  it('campos extras na raiz e na entrada (registroSadt, tipoAnexo, outros) são aceitos', () => {
+    const p = montarPainelAnexos({
+      mes: '2026-11',
+      registros: [
+        {
+          ...registro({ '1': entrada('anexada', { registroSadt: 'x.json', tipoAnexo: '2', campoQualquer: { a: 1 } }) }),
+          campoNaRaiz: 'qualquer',
+          outro: [1, 2],
+        },
+      ],
+    });
+    expect(p.aviso).toBeNull();
+    expect(p.contas).toHaveLength(1);
+  });
+
+  it('mesmo status: ordena por nome da paciente', () => {
+    const p = montarPainelAnexos({
+      mes: '2026-11',
+      registros: [
+        registro({
+          '1': entrada('pendencia', { paciente: 'CIDA' }),
+          '2': entrada('pendencia', { paciente: 'ANA' }),
+          '3': entrada('pendencia', { paciente: 'BIA' }),
+        }),
+      ],
+    });
+    expect(p.contas.map((c) => c.paciente)).toEqual(['ANA', 'BIA', 'CIDA']);
+  });
+
+  it('execucoes vazio: ultimaExecucao é null', () => {
+    const p = montarPainelAnexos({ mes: '2026-11', registros: [registro({ '1': entrada('anexada') }, [])] });
+    expect(p.aviso).toBeNull();
+    expect(p.ultimaExecucao).toBeNull();
+  });
+
   it('registro que não abre ou fora do formato vira aviso', () => {
     expect(montarPainelAnexos({ mes: '2026-11', registros: [null] }).aviso).toMatch(/não abriu ou está fora do formato/);
     expect(montarPainelAnexos({ mes: '2026-11', registros: [{ versao: 1 }] }).aviso).toMatch(/fora do formato/);

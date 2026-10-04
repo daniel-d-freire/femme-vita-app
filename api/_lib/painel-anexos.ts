@@ -38,7 +38,8 @@ const EntradaSchema = z.object({
   arquivos: z.array(z.string()),
   motivo: z.string().nullable(),
   em: z.string(),
-  nota: z.string().optional(),
+  // Livre: o robô só preserva a nota (passthrough) e uma edição à mão pode pôr null ou outro tipo.
+  nota: z.unknown().optional(),
 });
 
 const RegistroSchema = z.object({
@@ -95,7 +96,7 @@ export function montarPainelAnexos(entrada: { mes: string; registros: unknown[] 
       arquivos: e.arquivos,
       motivo: e.motivo,
       em: e.em,
-      nota: e.nota ?? null,
+      nota: typeof e.nota === 'string' ? e.nota : null,
     }))
     .sort((a, b) => ORDEM[a.status] - ORDEM[b.status] || a.paciente.localeCompare(b.paciente, 'pt-BR') || a.conta.localeCompare(b.conta));
 
