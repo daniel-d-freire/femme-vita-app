@@ -1,9 +1,11 @@
 // src/dev/Demo.tsx — vitrine só de desenvolvimento. main.tsx não carrega isto em produção.
 import { CameraScreen } from '../components/CameraScreen';
+import { PainelAnexosScreen } from '../components/PainelAnexosScreen';
 import { PainelSadtScreen } from '../components/PainelSadtScreen';
 import { SadtResultScreen } from '../components/SadtResultScreen';
 import { SavedScreen } from '../components/SavedScreen';
 import type { SadtAnalyzeResult } from '../lib/api';
+import type { PainelAnexos } from '../lib/anexos';
 import type { PainelSadt } from '../lib/painel';
 
 const PAGINA =
@@ -62,6 +64,22 @@ const PAINEL: PainelSadt = {
 
 const nada = () => undefined;
 const salvar = (...args: unknown[]) => console.log('[demo] salvar', args);
+
+const PAINEL_ANEXOS: PainelAnexos = {
+  mes: '2026-11',
+  referencia: '11/2026',
+  aviso: null,
+  ultimaExecucao: { inicio: '2026-11-05T13:00:00.000Z', fim: '2026-11-05T13:20:00.000Z', dryRun: false, resumo: '3 anexadas, 1 pendências, 1 a conferir, 0 já anexadas antes' },
+  totais: { total: 6, anexadas: 3, pendencias: 1, conferir: 1, naoEnviadas: 1 },
+  contas: [
+    { conta: '18000001', nr: '150000000', tipo: 'sadt', paciente: 'MARIA DE TESTE LIMA', status: 'conferir', arquivos: ['Guia_SADT_MARIA DE TESTE LIMA_2026.10.02.pdf'], motivo: null, em: '2026-11-05T13:05:00.000Z', nota: null },
+    { conta: '18000002', nr: '140000000', tipo: 'honorarios', paciente: 'ANA EXEMPLO SOUZA', status: 'pendencia', arquivos: [], motivo: 'falta guia de honorários assinada', em: '2026-11-05T13:06:00.000Z', nota: null },
+    { conta: '18000003', nr: '150000000', tipo: 'sadt', paciente: 'BIA TESTE COSTA', status: 'nao_enviada', arquivos: [], motivo: null, em: '2026-11-05T13:00:00.000Z', nota: null },
+    { conta: '18000004', nr: '140000000', tipo: 'honorarios', paciente: 'CIDA FICTICIA ROCHA', status: 'anexada', arquivos: ['Guia_internação_CIDA FICTICIA ROCHA.pdf', 'Descrição_cirúrgica_CIDA FICTICIA ROCHA.pdf', 'Guia_honorários_assinada_CIDA FICTICIA ROCHA.pdf'], motivo: null, em: '2026-11-05T13:10:00.000Z', nota: null },
+    { conta: '18000005', nr: '150000000', tipo: 'sadt', paciente: 'DORA EXEMPLO DIAS', status: 'anexada', arquivos: ['Guia_SADT_DORA EXEMPLO DIAS_2026.10.15.pdf'], motivo: null, em: '2026-11-05T13:12:00.000Z', nota: 'anexada à mão em 03/10/2026, antes do robô' },
+    { conta: '18000006', nr: '150000000', tipo: 'sadt', paciente: 'EVA TESTE MOURA', status: 'anexada', arquivos: ['Guia_SADT_EVA TESTE MOURA_2026.10.20.pdf'], motivo: null, em: '2026-11-05T13:14:00.000Z', nota: null },
+  ],
+};
 
 export default function Demo({ nome }: { nome: string }) {
   switch (nome) {
@@ -141,10 +159,26 @@ export default function Demo({ nome }: { nome: string }) {
           })}
         />
       );
+    case 'painel-anexos':
+      return <PainelAnexosScreen mesInicial="2026-11" carregar={async () => PAINEL_ANEXOS} />;
+    case 'painel-anexos-vazio':
+      return (
+        <PainelAnexosScreen
+          mesInicial="2026-12"
+          carregar={async (mes) => ({ ...PAINEL_ANEXOS, mes, referencia: `${mes.slice(5, 7)}/${mes.slice(0, 4)}`, contas: [], ultimaExecucao: null, totais: { total: 0, anexadas: 0, pendencias: 0, conferir: 0, naoEnviadas: 0 } })}
+        />
+      );
+    case 'painel-anexos-aviso':
+      return (
+        <PainelAnexosScreen
+          mesInicial="2026-11"
+          carregar={async () => ({ ...PAINEL_ANEXOS, contas: [], totais: { total: 0, anexadas: 0, pendencias: 0, conferir: 0, naoEnviadas: 0 }, aviso: 'O registro deste mês não abriu ou está fora do formato. Não rode o robô antes de conferir o arquivo _anexos.json (avise o Daniel).' })}
+        />
+      );
     default:
       return (
         <p style={{ padding: 24, fontFamily: 'monospace' }}>
-          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo, painel-sadt, painel-sadt-completo, painel-sadt-vazio
+          Demos: sadt-resultado, sadt-avisos, sadt-nao-sadt, sadt-camera, sadt-salvo, painel-sadt, painel-sadt-completo, painel-sadt-vazio, painel-anexos, painel-anexos-vazio, painel-anexos-aviso
         </p>
       );
   }

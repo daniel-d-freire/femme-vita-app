@@ -5,6 +5,7 @@ import { PagesStack } from './components/PagesStack';
 import { ProcessingScreen } from './components/ProcessingScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { LoginScreen } from './components/LoginScreen';
+import { PainelAnexosScreen } from './components/PainelAnexosScreen';
 import { PainelSadtScreen } from './components/PainelSadtScreen';
 import { SadtResultScreen } from './components/SadtResultScreen';
 import { SavedScreen } from './components/SavedScreen';
@@ -290,6 +291,8 @@ export default function App() {
   if (auth.kind === 'loading') return <BootScreen />;
   if (auth.kind === 'unauthenticated') return <LoginScreen error={auth.error} />;
   if (tela === 'faturamento-sadt') return <PainelSadtScreen />;
+  // ?tela=anexos vem do card "Anexos MedSênior" do Hub (Master).
+  if (tela === 'anexos') return <PainelAnexosScreen />;
 
   switch (screen.kind) {
     case 'crop':
