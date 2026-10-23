@@ -13,7 +13,7 @@ import {
   type PainelAnexos,
   type StatusConta,
 } from '../lib/anexos';
-import { deslocarMes, rotuloMes } from '../lib/painel';
+import { COMANDO_PASTA_ROBO, deslocarMes, rotuloMes } from '../lib/painel';
 
 type Estado =
   | { kind: 'carregando' }
@@ -194,10 +194,11 @@ function Robo({ painel, onRecarregar }: { painel: PainelAnexos; onRecarregar: ()
         <p className="font-mono text-[10px] tracking-[0.28em] uppercase text-amber">Robô</p>
         <p className="mt-1 font-serif text-2xl italic leading-tight">Anexar no computador do Daniel</p>
         <p className="mt-2 text-[13px] leading-relaxed text-bone/60">
-          Na pasta <span className="font-mono text-bone/80">femme-vita-faturamento</span>, rode primeiro o ensaio: ele escolhe os
-          documentos de cada conta sem anexar nada. Se o plano estiver certo, rode o de verdade.
+          Entre na pasta <span className="font-mono text-bone/80">femme-vita-faturamento</span> e rode primeiro o ensaio: ele
+          escolhe os documentos de cada conta sem anexar nada. Se o plano estiver certo, rode o de verdade.
         </p>
       </div>
+      <Comando rotulo="Pasta" texto={COMANDO_PASTA_ROBO} />
       {painel.aviso ? (
         <p className="border-b border-bone/10 px-5 py-3 font-mono text-[11px] text-bone/50">
           Comandos escondidos até o registro ser conferido.

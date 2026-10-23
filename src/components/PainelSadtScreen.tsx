@@ -5,6 +5,7 @@ import { ApiError } from '../lib/api';
 import {
   agendaCompleta,
   buscarPainel,
+  COMANDO_PASTA_ROBO,
   comandoRobo,
   deslocarMes,
   detalheDaGuia,
@@ -372,10 +373,11 @@ function Robo({ painel, onRecarregar }: { painel: PainelSadt; onRecarregar: () =
         <p className="font-mono text-[10px] tracking-[0.28em] uppercase text-amber">Robô</p>
         <p className="mt-1 font-serif text-2xl italic leading-tight">Faturar no computador do Daniel</p>
         <p className="mt-2 text-[13px] leading-relaxed text-bone/60">
-          Na pasta <span className="font-mono text-bone/80">femme-vita-faturamento</span>, rode primeiro o ensaio: ele
+          Entre na pasta <span className="font-mono text-bone/80">femme-vita-faturamento</span> e rode primeiro o ensaio: ele
           preenche e confere cada guia sem salvar. Se tudo vier ok, rode o de verdade.
         </p>
       </div>
+      <Comando rotulo="Pasta" texto={COMANDO_PASTA_ROBO} />
       <Comando rotulo="Ensaio" texto={comandoRobo(painel.mes, true)} />
       <Comando rotulo="Faturar" texto={comandoRobo(painel.mes, false)} />
       <div className="flex items-center justify-between gap-3 px-5 py-4">

@@ -98,6 +98,9 @@ export function diaDaSemana(mes: string, dia: number): number {
   return new Date(Date.UTC(ano, mm - 1, dia)).getUTCDay();
 }
 
+/** Os robôs rodam de dentro do repositório no computador do Daniel. */
+export const COMANDO_PASTA_ROBO = 'cd C:\\Users\\User\\Developer\\femme-vita-faturamento';
+
 export function comandoRobo(mes: string, ensaio: boolean): string {
   return `npm run faturar-sadt -- ${mes}${ensaio ? ' --dry-run' : ''}`;
 }

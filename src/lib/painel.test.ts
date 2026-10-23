@@ -1,6 +1,6 @@
 // src/lib/painel.test.ts
 import { describe, expect, it } from 'vitest';
-import { agendaCompleta, comandoRobo, deslocarMes, detalheDaGuia, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type AgendaPainel, type GuiaPainel } from './painel';
+import { agendaCompleta, COMANDO_PASTA_ROBO, comandoRobo, deslocarMes, detalheDaGuia, diaDaSemana, diasDoMes, formatarMoeda, guiasPorDia, mesAnterior, rotuloMes, type AgendaPainel, type GuiaPainel } from './painel';
 
 function guia(data: string | null, status: GuiaPainel['status'] = 'faturada'): GuiaPainel {
   return { chave: `${data}.json`, paciente: 'X', data, status, guiaPortal: null, valor: null, motivo: null, pdfId: null, digitalizadoPor: null };
@@ -35,6 +35,9 @@ describe('comandoRobo', () => {
   it('ensaio e de verdade', () => {
     expect(comandoRobo('2026-09', true)).toBe('npm run faturar-sadt -- 2026-09 --dry-run');
     expect(comandoRobo('2026-09', false)).toBe('npm run faturar-sadt -- 2026-09');
+  });
+  it('entrar na pasta do robô', () => {
+    expect(COMANDO_PASTA_ROBO).toBe('cd C:\\Users\\User\\Developer\\femme-vita-faturamento');
   });
 });
 
