@@ -10,6 +10,11 @@ type Buscar = (url: string, init?: RequestInit) => Promise<Response>;
  * Agenda do período no NinSaúde (Apolo). Mesma receita do VitaZap: o token exige o
  * header `X-Grant-Type`, e a leitura usa `bearer` minúsculo (maiúsculo dá 401).
  * Nunca lança: sem agenda, o painel continua mostrando o que vem do Drive.
+ *
+ * O NinSaúde só aceita o access token MAIS RECENTE: outro sistema que use a
+ * mesma conta (VitaZap) e emita um token entre a nossa troca e a leitura
+ * derruba o nosso com 401 (testado em 28/10/2026). Nesse caso, um token novo
+ * e uma segunda tentativa.
  */
 export async function lerAgendaNinsaude(
   refreshToken: string | undefined,
@@ -21,7 +26,7 @@ export async function lerAgendaNinsaude(
   // Um prazo só para a chamada inteira (token + agenda + leitura do corpo).
   const prazo = AbortSignal.timeout(TEMPO_MAXIMO_MS);
   try {
-    const token = await buscar(URL_TOKEN, {
+    const trocar = () => buscar(URL_TOKEN, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -31,14 +36,20 @@ export async function lerAgendaNinsaude(
       body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
       signal: prazo,
     });
-    if (!token.ok) return { ok: false, motivo: `o NinSaúde recusou o token (HTTP ${token.status})` };
-    const acesso = ((await token.json().catch(() => ({}))) as { access_token?: string }).access_token;
-    if (!acesso) return { ok: false, motivo: 'o NinSaúde não devolveu o token de acesso' };
-
-    const agenda = await buscar(`${URL_AGENDA}?dataInicial=${inicio}&dataFinal=${fim}`, {
+    const ler = (acesso: string) => buscar(`${URL_AGENDA}?dataInicial=${inicio}&dataFinal=${fim}`, {
       headers: { Authorization: `bearer ${acesso}` },
       signal: prazo,
     });
+    let agenda: Response | null = null;
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      const token = await trocar();
+      if (!token.ok) return { ok: false, motivo: `o NinSaúde recusou o token (HTTP ${token.status})` };
+      const acesso = ((await token.json().catch(() => ({}))) as { access_token?: string }).access_token;
+      if (!acesso) return { ok: false, motivo: 'o NinSaúde não devolveu o token de acesso' };
+      agenda = await ler(acesso);
+      if (agenda.status !== 401) break;
+    }
+    if (!agenda) return { ok: false, motivo: 'o NinSaúde não respondeu' };
     if (!agenda.ok) return { ok: false, motivo: `o NinSaúde recusou a leitura da agenda (HTTP ${agenda.status})` };
     let corpo: { result?: unknown } | null;
     try {

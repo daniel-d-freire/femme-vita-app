@@ -31,6 +31,18 @@ describe('lerAgendaNinsaude', () => {
     expect(await lerAgendaNinsaude('R', '2026-09-01', '2026-09-30', buscar)).toEqual({ ok: false, motivo: 'o NinSaúde recusou o token (HTTP 400)' });
   });
 
+  it('401 na leitura (token derrubado por outro sistema): troca de novo e tenta mais uma vez', async () => {
+    let emitidos = 0;
+    let leituras = 0;
+    const buscar = vi.fn(async (url: string) => {
+      if (url.includes('oauth2/token')) return json({ access_token: `A${++emitidos}` });
+      leituras += 1;
+      return leituras === 1 ? json({}, 401) : json({ result: [{ id: 7 }] });
+    });
+    expect(await lerAgendaNinsaude('R', '2026-09-01', '2026-09-30', buscar)).toEqual({ ok: true, itens: [{ id: 7 }] });
+    expect(emitidos).toBe(2);
+  });
+
   it('agenda recusada ou sem result', async () => {
     const recusa = vi.fn(async (url: string) => (url.includes('oauth2') ? json({ access_token: 'A' }) : json({}, 401)));
     expect(await lerAgendaNinsaude('R', '2026-09-01', '2026-09-30', recusa)).toEqual({ ok: false, motivo: 'o NinSaúde recusou a leitura da agenda (HTTP 401)' });
